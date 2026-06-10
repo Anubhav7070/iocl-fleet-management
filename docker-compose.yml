@@ -36,6 +36,8 @@ services:
       - ASPNETCORE_URLS=http://+:5173
       - Backend__Url=
       - Backend__InternalUrl=http://backend-api:5000
+    volumes:
+      - ./frontend-dotnet/keys:/root/.aspnet/DataProtection-Keys
     depends_on:
       - backend-api
     restart: always
