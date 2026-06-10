@@ -156,11 +156,15 @@ public class ComplianceController : ControllerBase
     {
         var (userId, username, role, userDeptId) = GetCurrentUser();
 
-        if (string.IsNullOrEmpty(dto.ExpiryDate))
-            return BadRequest(ApiResponse.Fail("Expiry date is required for document renewals."));
-
         if (file == null)
             return BadRequest(ApiResponse.Fail("Document upload is mandatory for all compliance entries."));
+
+        // Enforce that uploaded documents must be readable PDF files for security verification
+        var isPdf = file.ContentType == "application/pdf" || file.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase);
+        if (!isPdf)
+        {
+            return BadRequest(ApiResponse.Fail("To prevent compliance tampering, all uploaded documents must be readable PDF files. Scanned images are not permitted."));
+        }
 
         var record = await _db.ComplianceRecords
             .Include(c => c.Vehicle)
@@ -172,16 +176,46 @@ public class ComplianceController : ControllerBase
         if (role == "DEPT_ADMIN" && record.Vehicle.DepartmentId != userDeptId)
             return StatusCode(403, ApiResponse.Fail("Access denied. You cannot renew records for other departments."));
 
+        // Save uploaded file to memory first to extract date, then save to disk
+        string extractedDateStr = "";
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.CopyToAsync(ms);
+            var fileBytes = ms.ToArray();
+
+            using var pdfDoc = PdfDocument.Open(fileBytes);
+            var text = new StringBuilder();
+            foreach (var page in pdfDoc.GetPages())
+                text.AppendLine(page.Text);
+
+            var extractedDate = ExtractExpiryDate(text.ToString());
+            if (!extractedDate.HasValue)
+            {
+                return BadRequest(ApiResponse.Fail("Could not automatically extract a valid expiry date from the uploaded PDF. Please upload a PDF containing a clear expiry date."));
+            }
+
+            extractedDateStr = extractedDate.Value.ToString("yyyy-MM-dd");
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ApiResponse.Fail($"Failed to parse the PDF document: {ex.Message}"));
+        }
+
         var oldExpiryDate = record.ExpiryDate;
         var oldDocumentId = record.DocumentId;
 
-        // Save uploaded file
+        // Save uploaded file to disk
         var uploadDir = Path.GetFullPath(_config["Upload:Directory"] ?? "./uploads");
         Directory.CreateDirectory(uploadDir);
         var uniqueName = $"file-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}-{Random.Shared.Next(1000000000)}{Path.GetExtension(file.FileName)}";
         var filePath = Path.Combine(uploadDir, uniqueName);
+        
         using (var stream = new FileStream(filePath, FileMode.Create))
+        {
+            // Reset position of files or save using standard copy
             await file.CopyToAsync(stream);
+        }
 
         var doc = new Document
         {
@@ -194,12 +228,12 @@ public class ComplianceController : ControllerBase
         _db.Documents.Add(doc);
         await _db.SaveChangesAsync();
 
-        // Update compliance record
+        // Update compliance record using securely extracted date
         if (!string.IsNullOrEmpty(dto.LicenseNumber)) record.LicenseNumber = dto.LicenseNumber;
         if (!string.IsNullOrEmpty(dto.IssuingAuthority)) record.IssuingAuthority = dto.IssuingAuthority;
         if (!string.IsNullOrEmpty(dto.IssueDate)) record.IssueDate = dto.IssueDate;
-        record.ExpiryDate = dto.ExpiryDate;
-        record.Status = _compliance.CalculateStatus(dto.ExpiryDate);
+        record.ExpiryDate = extractedDateStr;
+        record.Status = _compliance.CalculateStatus(extractedDateStr);
         record.DocumentId = doc.Id;
         record.LastUpdatedBy = username;
         record.LastUpdatedTimestamp = DateTime.UtcNow;
@@ -213,7 +247,7 @@ public class ComplianceController : ControllerBase
             VehicleId = record.VehicleId,
             LicenseType = record.LicenseType,
             OldExpiryDate = oldExpiryDate,
-            NewExpiryDate = dto.ExpiryDate,
+            NewExpiryDate = extractedDateStr,
             OldDocumentId = oldDocumentId,
             NewDocumentId = doc.Id,
             RenewedBy = userId
@@ -315,24 +349,18 @@ public class ComplianceController : ControllerBase
 
     /// <summary>
     /// Extracts the most likely expiry/validity date from free text.
-    /// Priority: lines containing "expir", "valid till", "valid upto", "validity", "renewal"
-    /// followed by common date patterns.
+    /// Priority: matches with expiry keywords in a surrounding 150-character window.
     /// </summary>
-    private static DateTime? ExtractExpiryDate(string text)
+    public static DateTime? ExtractExpiryDate(string text)
     {
-        // Normalise text
-        var lines = text
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Select(l => l.Trim())
-            .Where(l => l.Length > 0)
-            .ToList();
+        if (string.IsNullOrEmpty(text)) return null;
 
-        // Date patterns to try (ordered by specificity)
+        // Date patterns to try (ordered by specificity, year can be 2-4 digits)
         var datePatterns = new[]
         {
-            @"\b(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})\b",      // dd/mm/yyyy  or mm/dd/yyyy
-            @"\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s,]+(\d{4})\b", // dd Mon YYYY
-            @"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s,]+(\d{1,2})[\s,]+(\d{4})\b", // Mon dd, YYYY
+            @"\b(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})\b",      // dd/mm/yyyy  or dd/mm/yy
+            @"\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s,]+(\d{2,4})\b", // dd Mon YYYY/YY
+            @"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s,]+(\d{1,2})[\s,]+(\d{2,4})\b", // Mon dd, YYYY/YY
             @"\b(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})\b"        // yyyy-mm-dd
         };
 
@@ -340,44 +368,55 @@ public class ComplianceController : ControllerBase
         var expiryKeywords = new[]
         {
             "expir", "valid till", "valid upto", "validity", "renewal date",
-            "renew", "due date", "date of expiry", "expire"
+            "renew", "due date", "date of expiry", "expire", "validity upto", "validity date"
         };
 
-        // First pass: lines with expiry keywords
-        foreach (var line in lines)
-        {
-            var lower = line.ToLower();
-            if (!expiryKeywords.Any(k => lower.Contains(k))) continue;
+        var matches = new List<(DateTime Date, int Index, bool HasKeywordNearby)>();
 
-            foreach (var pattern in datePatterns)
-            {
-                var m = Regex.Match(line, pattern, RegexOptions.IgnoreCase);
-                if (m.Success && TryParseDate(m, pattern, out var dt))
-                    return dt;
-            }
-        }
-
-        // Second pass: find ALL dates in the document and return the latest one
-        // (typically the expiry date is in the future / the most recent one)
-        var allDates = new List<DateTime>();
-        foreach (var line in lines)
+        foreach (var pattern in datePatterns)
         {
-            foreach (var pattern in datePatterns)
+            var rx = new Regex(pattern, RegexOptions.IgnoreCase);
+            var mc = rx.Matches(text);
+            foreach (Match m in mc)
             {
-                foreach (Match m in Regex.Matches(line, pattern, RegexOptions.IgnoreCase))
+                if (TryParseDate(m, pattern, out var dt))
                 {
-                    if (TryParseDate(m, pattern, out var dt))
-                        allDates.Add(dt);
+                    // Look for expiry keywords in a surrounding window
+                    int startIdx = Math.Max(0, m.Index - 150);
+                    int endIdx = Math.Min(text.Length, m.Index + m.Length + 150);
+                    var surroundingText = text.Substring(startIdx, endIdx - startIdx).ToLower();
+                    
+                    bool keywordNearby = expiryKeywords.Any(k => surroundingText.Contains(k));
+                    matches.Add((dt, m.Index, keywordNearby));
                 }
             }
         }
 
-        // Return the latest future date, or the latest date overall
-        var futureDates = allDates.Where(d => d > DateTime.Today).OrderByDescending(d => d).ToList();
-        if (futureDates.Count > 0) return futureDates[0];
+        if (matches.Count == 0) return null;
 
-        var sortedAll = allDates.OrderByDescending(d => d).ToList();
-        return sortedAll.Count > 0 ? sortedAll[0] : null;
+        // Group 1: Has keyword nearby and is in the future.
+        var futureWithKeyword = matches
+            .Where(m => m.HasKeywordNearby && m.Date > DateTime.Today)
+            .OrderByDescending(m => m.Date)
+            .ToList();
+        if (futureWithKeyword.Any()) return futureWithKeyword.First().Date;
+
+        // Group 2: Has keyword nearby (even if past/today).
+        var allWithKeyword = matches
+            .Where(m => m.HasKeywordNearby)
+            .OrderByDescending(m => m.Date)
+            .ToList();
+        if (allWithKeyword.Any()) return allWithKeyword.First().Date;
+
+        // Group 3: No keyword, but is in the future.
+        var futureNoKeyword = matches
+            .Where(m => m.Date > DateTime.Today)
+            .OrderByDescending(m => m.Date)
+            .ToList();
+        if (futureNoKeyword.Any()) return futureNoKeyword.First().Date;
+
+        // Group 4: Fallback to the latest date found in the document overall.
+        return matches.OrderByDescending(m => m.Date).First().Date;
     }
 
     private static bool TryParseDate(Match m, string pattern, out DateTime result)
@@ -391,6 +430,7 @@ public class ComplianceController : ControllerBase
                 int p1 = int.Parse(m.Groups[1].Value);
                 int p2 = int.Parse(m.Groups[2].Value);
                 int yr = int.Parse(m.Groups[3].Value);
+                if (yr < 100) yr += 2000; // handle 2-digit year!
                 // Try dd/mm/yyyy first (Indian standard)
                 if (p2 >= 1 && p2 <= 12 && p1 >= 1 && p1 <= 31)
                     if (DateTime.TryParse($"{yr}-{p2:D2}-{p1:D2}", out result)) return true;

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using System.Text;
 using QRCoder;
 using IoclFleetApi.Data;
 using IoclFleetApi.DTOs;
@@ -180,27 +181,58 @@ public class VehiclesController : ControllerBase
         if (existing != null)
             return BadRequest(ApiResponse.Fail($"Vehicle {dto.VehicleNumber!.ToUpper()} is already registered in the system."));
 
-        // Validate all 8 compliance documents are present in request
+        // Validate all 8 compliance documents are present in request and extract dates securely from PDFs
         var complianceTypes = new[] { "ROAD_PERMIT", "AGE_DETERMINATION", "PUC", "FITNESS", "EXPLOSIVE", "GREEN_CARD", "INSURANCE", "CALIBRATION" };
+        var extractedExpiries = new Dictionary<string, DateTime>();
+
         foreach (var type in complianceTypes)
         {
             var compFile = form.Files[$"doc_{type}"];
             if (compFile == null)
                 return BadRequest(ApiResponse.Fail($"Document upload for {type.Replace("_", " ")} is mandatory."));
 
+            // Enforce that uploaded compliance files must be readable PDF files for security verification
+            var isPdf = compFile.ContentType == "application/pdf" || compFile.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase);
+            if (!isPdf)
+            {
+                return BadRequest(ApiResponse.Fail($"Document for {type.Replace("_", " ")} must be a readable PDF file. Scanned images are not permitted."));
+            }
+
             var issueDateStr = form[$"issue_{type}"].FirstOrDefault();
             if (string.IsNullOrEmpty(issueDateStr) || !DateTime.TryParse(issueDateStr, out _))
                 return BadRequest(ApiResponse.Fail($"A valid issue date is required for {type.Replace("_", " ")}."));
 
-            var expiryDateStr = form[$"expiry_{type}"].FirstOrDefault();
-            if (string.IsNullOrEmpty(expiryDateStr) || !DateTime.TryParse(expiryDateStr, out _))
-                return BadRequest(ApiResponse.Fail($"A valid expiry date is required for {type.Replace("_", " ")}."));
-
-            if (DateTime.TryParse(issueDateStr, out var parsedIssue) && DateTime.TryParse(expiryDateStr, out var parsedExpiry))
+            // Securely extract date directly from the PDF file
+            DateTime extractedExpiry;
+            try
             {
-                if (parsedExpiry < parsedIssue)
+                using var ms = new MemoryStream();
+                await compFile.CopyToAsync(ms);
+                var fileBytes = ms.ToArray();
+
+                using var pdfDoc = UglyToad.PdfPig.PdfDocument.Open(fileBytes);
+                var text = new StringBuilder();
+                foreach (var page in pdfDoc.GetPages())
+                    text.AppendLine(page.Text);
+
+                var extractedDate = ComplianceController.ExtractExpiryDate(text.ToString());
+                if (!extractedDate.HasValue)
                 {
-                    return BadRequest(ApiResponse.Fail($"Expiry date must be after issue date for {type.Replace("_", " ")}."));
+                    return BadRequest(ApiResponse.Fail($"Could not automatically extract a valid expiry date from the uploaded PDF for {type.Replace("_", " ")}. Please ensure the document contains a clear expiry date."));
+                }
+                extractedExpiry = extractedDate.Value;
+                extractedExpiries[type] = extractedExpiry;
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ApiResponse.Fail($"Failed to parse the PDF document for {type.Replace("_", " ")}: {ex.Message}"));
+            }
+
+            if (DateTime.TryParse(issueDateStr, out var parsedIssue))
+            {
+                if (extractedExpiry < parsedIssue)
+                {
+                    return BadRequest(ApiResponse.Fail($"Extracted expiry date ({extractedExpiry:yyyy-MM-dd}) must be after issue date for {type.Replace("_", " ")}."));
                 }
             }
 
@@ -279,10 +311,7 @@ public class VehiclesController : ControllerBase
             if (DateTime.TryParse(issueDateStr, out var parsedIssueDate))
                 issueDate = parsedIssueDate;
 
-            var expiryDateStr = form[$"expiry_{type}"].FirstOrDefault();
-            DateTime? expiryDate = null;
-            if (DateTime.TryParse(expiryDateStr, out var parsedDate))
-                expiryDate = parsedDate;
+            var expiryDate = extractedExpiries[type];
 
             int? compDocId = null;
             if (compFile != null)
@@ -301,7 +330,7 @@ public class VehiclesController : ControllerBase
                 LicenseNumber = form[$"licNo_{type}"].FirstOrDefault() ?? "PENDING",
                 IssuingAuthority = "PENDING",
                 IssueDate = issueDate.HasValue ? issueDate.Value.ToString("yyyy-MM-dd") : null,
-                ExpiryDate = expiryDate.HasValue ? expiryDate.Value.ToString("yyyy-MM-dd") : null,
+                ExpiryDate = expiryDate.ToString("yyyy-MM-dd"),
                 Status = "ACTIVE",
                 DocumentId = compDocId,
                 LastUpdatedBy = username,

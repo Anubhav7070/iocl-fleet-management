@@ -238,7 +238,7 @@
                     </div>
                     <div>
                         <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1">Expiry Date *</label>
-                        <input type="date" required @bind="expiryDateBind" class="w-full rounded-md border border-orange-300 bg-orange-50/10 py-2 px-3 text-xs text-slate-800 focus:border-orange-500 outline-none" />
+                        <input type="date" readonly="readonly" required @bind="expiryDateBind" class="w-full rounded-md border border-slate-250 bg-slate-100 py-2 px-3 text-xs text-slate-500 outline-none cursor-not-allowed" title="Expiry Date (Auto-extracted from PDF)" />
                     </div>
                 </div>
 
@@ -406,11 +406,12 @@
 
         if (uploadFile == null) return;
 
-        // Only try PDF extraction
+        // Only allow PDF files for compliance verification
         if (!uploadFile.Name.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
         {
-            dateExtractMsg = "ℹ️ Image uploaded — please enter the expiry date manually.";
+            dateExtractMsg = "❌ Only PDF files are allowed. Scanned images are not permitted for security verification.";
             dateExtractFound = false;
+            uploadFile = null; // Reset the selected file
             StateHasChanged();
             return;
         }
@@ -424,17 +425,24 @@
             using var stream = uploadFile.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
             var (found, date, message) = await Api.ExtractDateFromDocumentAsync(stream, uploadFile.Name, uploadFile.ContentType);
             dateExtractFound = found;
-            dateExtractMsg = found ? $"✅ {message}" : $"⚠️ {message}";
-
+            
             if (found && date != null && DateTime.TryParse(date, out var detectedDate))
             {
+                dateExtractMsg = $"✅ {message}";
                 expiryDateBind = detectedDate;
+            }
+            else
+            {
+                dateExtractMsg = $"❌ Could not extract a valid expiry date. To prevent compliance fraud, a readable PDF containing a valid expiry date is required.";
+                dateExtractFound = false;
+                uploadFile = null; // Reject file
             }
         }
         catch (Exception ex)
         {
-            dateExtractMsg = $"⚠️ Could not scan document: {ex.Message}";
+            dateExtractMsg = $"❌ Could not scan document: {ex.Message}";
             dateExtractFound = false;
+            uploadFile = null; // Reject file
         }
         finally
         {

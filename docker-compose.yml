@@ -55,9 +55,9 @@ services:
     restart: always
 
   tunnel:
-    container_name: cloudflared-tunnel
-    image: cloudflare/cloudflared:latest
-    command: tunnel --url http://nginx-proxy:80
+    container_name: localtunnel
+    image: node:alpine
+    command: npx -y localtunnel --port 80 --local-host nginx-proxy --subdomain indianoilfleetmanagement
     depends_on:
       - nginx-proxy
     restart: always
