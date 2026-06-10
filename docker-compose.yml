@@ -1,0 +1,34 @@
+services:
+  backend-api:
+    container_name: backend-api
+    build:
+      context: ./backend-dotnet
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:5000
+      - Database__StoragePath=/app/database/iocl_compliance.sqlite
+      - Upload__Directory=/app/uploads
+      - Frontend__Url=http://localhost:5173
+    volumes:
+      - ./backend-dotnet/database:/app/database
+      - ./backend-dotnet/uploads:/app/uploads
+    restart: always
+
+  frontend-web:
+    container_name: frontend-web
+    build:
+      context: ./frontend-dotnet
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:5173
+      - Backend__Url=http://localhost:5000
+      - Backend__InternalUrl=http://backend-api:5000
+    depends_on:
+      - backend-api
+    restart: always

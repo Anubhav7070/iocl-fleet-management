@@ -20,7 +20,7 @@ public class NotificationClientService : IAsyncDisposable
     {
         _sessionStorage = sessionStorage;
         _authStateProvider = authStateProvider;
-        _backendUrl = config["Backend:Url"] ?? "http://localhost:5000";
+        _backendUrl = config["Backend:InternalUrl"] ?? config["Backend:Url"] ?? "http://localhost:5000";
     }
 
     public async Task StartAsync()

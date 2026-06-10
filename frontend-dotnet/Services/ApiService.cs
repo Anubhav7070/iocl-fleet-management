@@ -21,7 +21,7 @@ public class ApiService
     {
         _http = http;
         _sessionStorage = sessionStorage;
-        _baseUrl = config["Backend:Url"] ?? "http://localhost:5000";
+        _baseUrl = config["Backend:InternalUrl"] ?? config["Backend:Url"] ?? "http://localhost:5000";
     }
 
     private async Task<string?> GetTokenAsync()
