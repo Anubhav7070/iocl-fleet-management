@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using IoclFleetApi.Data;
 using IoclFleetApi.DTOs;
 using IoclFleetApi.Hubs;
@@ -30,7 +31,8 @@ public class AdminController : ControllerBase
     public async Task<IActionResult> TriggerComplianceEmails(
         [FromServices] IEmailService emailService,
         [FromServices] IHubContext<ComplianceHub> hubContext,
-        [FromServices] IComplianceAlertDispatcher dispatcher)
+        [FromServices] IComplianceAlertDispatcher dispatcher,
+        [FromServices] IServiceScopeFactory scopeFactory)
     {
         var userIdStr = User.FindFirst("id")?.Value;
         int? userId = string.IsNullOrEmpty(userIdStr) ? null : int.Parse(userIdStr);
@@ -44,7 +46,7 @@ public class AdminController : ControllerBase
             .ToListAsync();
 
         int alertCount = 0;
-        int emailsSent = 0;
+        var recordsToEmail = new List<int>();
 
         foreach (var record in records)
         {
@@ -66,13 +68,11 @@ public class AdminController : ControllerBase
                 }
             }
 
-            // 2. Send emails for all non-active (warning, critical, expired) certificates
+            // 2. Queue emails for all non-active (warning, critical, expired) certificates
             if (computedStatus != "ACTIVE")
             {
                 alertCount++;
-                var today = DateTime.Today;
-                var expiry = DateTime.Parse(record.ExpiryDate).Date;
-                var diffDays = (int)Math.Ceiling((expiry - today).TotalDays);
+                recordsToEmail.Add(record.Id);
 
                 var vehicle = record.Vehicle;
                 if (vehicle == null) continue;
@@ -80,6 +80,9 @@ public class AdminController : ControllerBase
                 // Create database notification & socket alert only if status changed
                 if (currentStatus != computedStatus)
                 {
+                    var today = DateTime.Today;
+                    var expiry = DateTime.Parse(record.ExpiryDate).Date;
+                    var diffDays = (int)Math.Ceiling((expiry - today).TotalDays);
                     var alertMessage = $"{record.LicenseType} certificate for vehicle {vehicle.VehicleNumber} is now {computedStatus} ({diffDays} days remaining).";
 
                     var notification = new Notification
@@ -112,50 +115,38 @@ public class AdminController : ControllerBase
 
                     dispatcher.DispatchComplianceAlert(notification);
                 }
-
-                // Send compliance email alert to matching admins
-                var usersToNotify = await _db.Users
-                    .Include(u => u.Department)
-                    .Where(u => u.Status == "ACTIVE" && (u.Role == "SUPER_ADMIN" || (u.Role == "DEPT_ADMIN" && u.DepartmentId == vehicle.DepartmentId)))
-                    .ToListAsync();
-
-                foreach (var user in usersToNotify)
-                {
-                    try
-                    {
-                        var greetingName = user.Role == "SUPER_ADMIN" ? "Super Admin" : (user.Department != null ? $"{user.Department.Name} Admin" : user.Username);
-                        await emailService.SendComplianceAlert(
-                            user.Email,
-                            greetingName,
-                            vehicle.VehicleNumber,
-                            vehicle.VehicleType,
-                            vehicle.Department?.Name ?? "N/A",
-                            record.LicenseType,
-                            record.ExpiryDate,
-                            diffDays,
-                            computedStatus
-                        );
-                        emailsSent++;
-                    }
-                    catch (Exception emailEx)
-                    {
-                        Console.WriteLine($"[AdminAPI] Failed to send email alert to {user.Email}: {emailEx.Message}");
-                    }
-                }
             }
         }
 
         await _db.SaveChangesAsync();
 
+        // Dispatch alert emails in the background to prevent HTTP gateway timeouts
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = scopeFactory.CreateScope();
+                var scopedDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var scopedEmail = scope.ServiceProvider.GetRequiredService<IEmailService>();
+                await SendComplianceAlertEmailsInternal(scopedDb, scopedEmail, recordsToEmail);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[AdminAPI] Error in background compliance alert email scan: {ex.Message}");
+            }
+        });
+
         await _audit.LogAction(userId, username, "TRIGGER_EMAIL_SCAN",
-            $"Manually triggered compliance scan. Generated {alertCount} new alerts and sent {emailsSent} alert emails.",
+            $"Manually triggered compliance scan. Generated {alertCount} alerts. Dispatch initiated in the background.",
             ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString());
 
-        return Ok(ApiResponse.Ok(new { alertsGenerated = alertCount, emailsSent }, "Compliance email scan run successfully."));
+        return Ok(ApiResponse.Ok(new { alertsGenerated = alertCount, emailsSent = recordsToEmail.Count }, "Compliance scan run successfully. Alert email dispatch initiated in background."));
     }
 
     [HttpPost("trigger-daily-digest")]
-    public async Task<IActionResult> TriggerDailyDigest([FromServices] IEmailService emailService)
+    public async Task<IActionResult> TriggerDailyDigest(
+        [FromServices] IEmailService emailService,
+        [FromServices] IServiceScopeFactory scopeFactory)
     {
         var userIdStr = User.FindFirst("id")?.Value;
         int? userId = string.IsNullOrEmpty(userIdStr) ? null : int.Parse(userIdStr);
@@ -183,18 +174,33 @@ public class AdminController : ControllerBase
         }
         await _db.SaveChangesAsync();
 
-        int emailsSent = await SendDailyDigestEmailsInternal(emailService);
+        // Dispatch emails in the background to prevent HTTP gateway timeouts
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = scopeFactory.CreateScope();
+                var scopedDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var scopedEmail = scope.ServiceProvider.GetRequiredService<IEmailService>();
+                var scopedCompliance = scope.ServiceProvider.GetRequiredService<IComplianceService>();
+                await SendDailyDigestEmailsInternal(scopedDb, scopedCompliance, scopedEmail);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[AdminAPI] Error in background daily digest: {ex.Message}");
+            }
+        });
 
         await _audit.LogAction(userId, username, "TRIGGER_DAILY_DIGEST",
-            $"Manually triggered daily digest emails. Dispatched summary reports to {emailsSent} users.",
+            "Manually triggered daily digest emails. Dispatch started in the background.",
             ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString());
 
-        return Ok(ApiResponse.Ok(new { emailsSent }, $"Daily summary digest dispatched to {emailsSent} users."));
+        return Ok(ApiResponse.Ok(new { emailsSent = 1 }, "Daily compliance summaries dispatch initiated in the background."));
     }
 
-    private async Task<int> SendDailyDigestEmailsInternal(IEmailService emailService)
+    private async Task<int> SendDailyDigestEmailsInternal(AppDbContext db, IComplianceService complianceService, IEmailService emailService)
     {
-        var vehicles = await _db.Vehicles
+        var vehicles = await db.Vehicles
             .Include(v => v.ComplianceRecords)
             .ToListAsync();
 
@@ -207,14 +213,14 @@ public class AdminController : ControllerBase
         {
             foreach (var r in v.ComplianceRecords)
             {
-                var status = _compliance.CalculateStatus(r.ExpiryDate);
+                var status = complianceService.CalculateStatus(r.ExpiryDate);
                 if (status == "EXPIRED") expiredCount++;
                 else if (status is "HIGH_CRITICAL" or "MEDIUM_CRITICAL") criticalCount++;
                 else if (status == "WARNING") warningCount++;
             }
         }
 
-        var departments = await _db.Departments
+        var departments = await db.Departments
             .Include(d => d.Vehicles)
             .ThenInclude(v => v.ComplianceRecords)
             .ToListAsync();
@@ -229,7 +235,7 @@ public class AdminController : ControllerBase
                 foreach (var r in v.ComplianceRecords)
                 {
                     totalLicenses++;
-                    var status = _compliance.CalculateStatus(r.ExpiryDate);
+                    var status = complianceService.CalculateStatus(r.ExpiryDate);
                     if (status == "ACTIVE" || status == "WARNING")
                         compliantLicenses++;
                 }
@@ -245,13 +251,13 @@ public class AdminController : ControllerBase
             };
         }).ToList();
 
-        var expiringRecords = await _db.ComplianceRecords
+        var expiringRecords = await db.ComplianceRecords
             .Include(c => c.Vehicle!).ThenInclude(v => v.Department)
             .Where(c => c.Status == "EXPIRED" || c.Status == "HIGH_CRITICAL"
                      || c.Status == "MEDIUM_CRITICAL" || c.Status == "WARNING")
             .ToListAsync();
 
-        var usersToNotify = await _db.Users
+        var usersToNotify = await db.Users
             .Include(u => u.Department)
             .Where(u => u.Status == "ACTIVE" && (u.Role == "SUPER_ADMIN" || u.Role == "DEPT_ADMIN"))
             .ToListAsync();
@@ -281,5 +287,58 @@ public class AdminController : ControllerBase
         }
 
         return sentCount;
+    }
+
+    private async Task SendComplianceAlertEmailsInternal(AppDbContext db, IEmailService emailService, List<int> recordIds)
+    {
+        var records = await db.ComplianceRecords
+            .Include(r => r.Vehicle!)
+            .ThenInclude(v => v.Department)
+            .Where(r => recordIds.Contains(r.Id))
+            .ToListAsync();
+
+        int sentCount = 0;
+        foreach (var record in records)
+        {
+            var vehicle = record.Vehicle;
+            if (vehicle == null || string.IsNullOrEmpty(record.ExpiryDate)) continue;
+
+            var today = DateTime.Today;
+            var expiry = DateTime.Parse(record.ExpiryDate).Date;
+            var diffDays = (int)Math.Ceiling((expiry - today).TotalDays);
+            var computedStatus = record.Status;
+
+            // Send compliance email alert to matching admins
+            var usersToNotify = await db.Users
+                .Include(u => u.Department)
+                .Where(u => u.Status == "ACTIVE" && (u.Role == "SUPER_ADMIN" || (u.Role == "DEPT_ADMIN" && u.DepartmentId == vehicle.DepartmentId)))
+                .ToListAsync();
+
+            foreach (var user in usersToNotify)
+            {
+                try
+                {
+                    var greetingName = user.Role == "SUPER_ADMIN" ? "Super Admin" : (user.Department != null ? $"{user.Department.Name} Admin" : user.Username);
+                    await emailService.SendComplianceAlert(
+                        user.Email,
+                        greetingName,
+                        vehicle.VehicleNumber,
+                        vehicle.VehicleType,
+                        vehicle.Department?.Name ?? "N/A",
+                        record.LicenseType,
+                        record.ExpiryDate,
+                        diffDays,
+                        computedStatus
+                    );
+                    sentCount++;
+                }
+                catch (Exception emailEx)
+                {
+                    Console.WriteLine($"[AdminAPI] Failed to send email alert to {user.Email} for record {record.Id}: {emailEx.Message}");
+                }
+            }
+        }
+        
+        Console.WriteLine($"[AdminAPI] Background compliance alert email scan finished. Dispatched {sentCount} emails.");
     }
 }

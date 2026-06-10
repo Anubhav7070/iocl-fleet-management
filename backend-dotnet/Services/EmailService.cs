@@ -65,6 +65,7 @@ public class EmailService : IEmailService
             message.Body = builder.ToMessageBody();
 
             using var client = new SmtpClient();
+            client.Timeout = 8000; // Fail fast (8 seconds) if SMTP is blocked in hosting environment
             await client.ConnectAsync(host, port, MailKit.Security.SecureSocketOptions.StartTls);
             await client.AuthenticateAsync(user, pass);
             await client.SendAsync(message);
