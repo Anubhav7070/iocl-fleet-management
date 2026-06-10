@@ -218,9 +218,20 @@ public class VehiclesController : ControllerBase
                 var extractedDate = ComplianceController.ExtractExpiryDate(text.ToString());
                 if (!extractedDate.HasValue)
                 {
-                    return BadRequest(ApiResponse.Fail($"Could not automatically extract a valid expiry date from the uploaded PDF for {type.Replace("_", " ")}. Please ensure the document contains a clear expiry date."));
+                    var manualExpiryStr = form[$"expiry_{type}"].FirstOrDefault();
+                    if (DateTime.TryParse(manualExpiryStr, out var manualExpiry))
+                    {
+                        extractedExpiry = manualExpiry;
+                    }
+                    else
+                    {
+                        return BadRequest(ApiResponse.Fail($"Could not automatically extract a valid expiry date from the uploaded PDF for {type.Replace("_", " ")}. Please ensure the document contains a clear expiry date or enter it manually."));
+                    }
                 }
-                extractedExpiry = extractedDate.Value;
+                else
+                {
+                    extractedExpiry = extractedDate.Value;
+                }
                 extractedExpiries[type] = extractedExpiry;
             }
             catch (Exception ex)

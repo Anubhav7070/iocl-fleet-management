@@ -238,7 +238,14 @@
                     </div>
                     <div>
                         <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1">Expiry Date *</label>
-                        <input type="date" readonly="readonly" required @bind="expiryDateBind" class="w-full rounded-md border border-slate-250 bg-slate-100 py-2 px-3 text-xs text-slate-500 outline-none cursor-not-allowed" title="Expiry Date (Auto-extracted from PDF)" />
+                        @if (manualExpiryAllowed)
+                        {
+                            <input type="date" required @bind="expiryDateBind" class="w-full rounded-md border border-slate-200 py-2 px-3 text-xs text-slate-700 outline-none focus:border-blue-500" title="Expiry Date (Enter manually)" />
+                        }
+                        else
+                        {
+                            <input type="date" readonly="readonly" required @bind="expiryDateBind" class="w-full rounded-md border border-slate-250 bg-slate-100 py-2 px-3 text-xs text-slate-500 outline-none cursor-not-allowed" title="Expiry Date (Auto-extracted from PDF)" />
+                        }
                     </div>
                 </div>
 
@@ -317,6 +324,7 @@
     private bool extractingDate = false;
     private string dateExtractMsg = string.Empty;
     private bool dateExtractFound = false;
+    private bool manualExpiryAllowed = false;
 
     // KPI Counts
     private int expiredCount;
@@ -394,6 +402,7 @@
 
         uploadFile = null;
         renewalError = string.Empty;
+        manualExpiryAllowed = false;
         isRenewOpen = true;
     }
 
@@ -430,19 +439,20 @@
             {
                 dateExtractMsg = $"✅ {message}";
                 expiryDateBind = detectedDate;
+                manualExpiryAllowed = false;
             }
             else
             {
-                dateExtractMsg = $"❌ Could not extract a valid expiry date. To prevent compliance fraud, a readable PDF containing a valid expiry date is required.";
+                dateExtractMsg = $"⚠️ Could not automatically extract a valid expiry date. Please enter the expiry date manually.";
                 dateExtractFound = false;
-                uploadFile = null; // Reject file
+                manualExpiryAllowed = true;
             }
         }
         catch (Exception ex)
         {
-            dateExtractMsg = $"❌ Could not scan document: {ex.Message}";
+            dateExtractMsg = $"⚠️ Could not automatically scan document: {ex.Message}. Please enter the expiry date manually.";
             dateExtractFound = false;
-            uploadFile = null; // Reject file
+            manualExpiryAllowed = true;
         }
         finally
         {

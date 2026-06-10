@@ -334,10 +334,21 @@
                                        title="Issue Date" />
                                 <!-- Expiry date -->
                                 <div class="flex-1 relative flex items-center">
-                                     <input type="date" readonly="readonly"
-                                            value="@(complianceDocs.ContainsKey(t) ? complianceDocs[t].ExpiryDate : "")"
-                                            class="w-full rounded border border-slate-250 bg-slate-100 px-2 py-1.5 text-[10px] font-semibold text-slate-500 outline-none cursor-not-allowed"
-                                            title="Expiry Date (Auto-extracted from PDF)" />
+                                     @if (manualExpiryAllowed.Contains(t))
+                                     {
+                                         <input type="date"
+                                                value="@(complianceDocs.ContainsKey(t) ? complianceDocs[t].ExpiryDate : "")"
+                                                @onchange="e => SetExpiryDate(t, e.Value?.ToString() ?? string.Empty)"
+                                                class="w-full rounded border border-slate-250 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-700 outline-none focus:border-blue-500 transition-all"
+                                                title="Expiry Date (Enter manually)" />
+                                     }
+                                     else
+                                     {
+                                         <input type="date" readonly="readonly"
+                                                value="@(complianceDocs.ContainsKey(t) ? complianceDocs[t].ExpiryDate : "")"
+                                                class="w-full rounded border border-slate-250 bg-slate-100 px-2 py-1.5 text-[10px] font-semibold text-slate-500 outline-none cursor-not-allowed"
+                                                title="Expiry Date (Auto-extracted from PDF)" />
+                                     }
                                      @if (extractingDate.Contains(t))
                                      {
                                          <span class="absolute right-2 flex items-center">
@@ -470,6 +481,9 @@
     // Types currently being date-extracted
     private HashSet<string> extractingDate = new();
 
+    // Set of document types where manual date entry is allowed
+    private HashSet<string> manualExpiryAllowed = new();
+
     private int uploadedCount => (rcFile != null ? 1 : 0) + complianceDocs.Count(d => d.Value.File != null);
 
     // Scan States
@@ -552,6 +566,7 @@
         rcFile = null;
         complianceDocs = new();
         extractingDate = new();
+        manualExpiryAllowed = new();
         uploadError = string.Empty;
         isSubmitting = false;
         isCreateOpen = true;
@@ -615,19 +630,18 @@
                 if (DateTime.TryParse(date, out var dt))
                     date = dt.ToString("yyyy-MM-dd");
                 SetExpiryDate(type, date);
+                manualExpiryAllowed.Remove(type);
             }
             else
             {
-                var existing = complianceDocs[type];
-                complianceDocs[type] = (null, existing.IssueDate, "", existing.LicNo);
-                await JS.InvokeVoidAsync("alert", $"Could not automatically extract a valid expiry date from {f.Name}. To prevent compliance tampering, a readable PDF containing a valid expiry date is required.");
+                manualExpiryAllowed.Add(type);
+                await JS.InvokeVoidAsync("alert", $"Could not automatically extract a valid expiry date from {f.Name}. Please enter the expiry date manually.");
             }
         }
         catch (Exception ex)
         {
-            var existing = complianceDocs[type];
-            complianceDocs[type] = (null, existing.IssueDate, "", existing.LicNo);
-            await JS.InvokeVoidAsync("alert", $"Date extraction failed for {type.Replace("_", " ")}: {ex.Message}");
+            manualExpiryAllowed.Add(type);
+            await JS.InvokeVoidAsync("alert", $"Date extraction failed for {type.Replace("_", " ")}: {ex.Message}. Please enter the expiry date manually.");
         }
         finally
         {

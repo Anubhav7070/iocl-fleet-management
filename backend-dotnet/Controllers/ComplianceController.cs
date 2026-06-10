@@ -192,7 +192,14 @@ public class ComplianceController : ControllerBase
             var extractedDate = ExtractExpiryDate(text.ToString());
             if (!extractedDate.HasValue)
             {
-                return BadRequest(ApiResponse.Fail("Could not automatically extract a valid expiry date from the uploaded PDF. Please upload a PDF containing a clear expiry date."));
+                if (DateTime.TryParse(dto.ExpiryDate, out var manualExpiry))
+                {
+                    extractedDate = manualExpiry;
+                }
+                else
+                {
+                    return BadRequest(ApiResponse.Fail("Could not automatically extract a valid expiry date from the uploaded PDF. Please upload a PDF containing a clear expiry date or enter it manually."));
+                }
             }
 
             extractedDateStr = extractedDate.Value.ToString("yyyy-MM-dd");
@@ -359,8 +366,8 @@ public class ComplianceController : ControllerBase
         var datePatterns = new[]
         {
             @"\b(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})\b",      // dd/mm/yyyy  or dd/mm/yy
-            @"\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s,]+(\d{2,4})\b", // dd Mon YYYY/YY
-            @"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s,]+(\d{1,2})[\s,]+(\d{2,4})\b", // Mon dd, YYYY/YY
+            @"\b(\d{1,2})[\s\-\/\.]*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s\-\/\.,]+(\d{2,4})\b", // dd Mon YYYY/YY (allows hyphens, spaces, etc.)
+            @"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s\-\/\.,]+(\d{1,2})[\s\-\/\.,]+(\d{2,4})\b", // Mon dd, YYYY/YY
             @"\b(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})\b"        // yyyy-mm-dd
         };
 
