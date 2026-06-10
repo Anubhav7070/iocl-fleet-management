@@ -1,0 +1,34 @@
+@code {
+    [Parameter]
+    public string Status { get; set; } = string.Empty;
+
+    private string GetBadgeClass()
+    {
+        return Status switch
+        {
+            "ACTIVE" => "bg-emerald-100 text-emerald-800 border-emerald-200",
+            "WARNING" => "bg-yellow-100 text-yellow-800 border-yellow-200",
+            "MEDIUM_CRITICAL" => "bg-orange-100 text-orange-800 border-orange-200",
+            "HIGH_CRITICAL" => "bg-orange-100 text-orange-800 border-orange-200 glow-critical",
+            "EXPIRED" => "bg-red-100 text-red-800 border-red-200 glow-expired",
+            _ => "bg-slate-100 text-slate-800 border-slate-200"
+        };
+    }
+
+    private string GetLabel()
+    {
+        return Status switch
+        {
+            "ACTIVE" => "ACTIVE",
+            "WARNING" => "WARNING",
+            "MEDIUM_CRITICAL" => "MEDIUM CRITICAL",
+            "HIGH_CRITICAL" => "HIGH CRITICAL",
+            "EXPIRED" => "EXPIRED",
+            _ => Status
+        };
+    }
+}
+
+<span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider shadow-sm @GetBadgeClass()">
+    @GetLabel()
+</span>

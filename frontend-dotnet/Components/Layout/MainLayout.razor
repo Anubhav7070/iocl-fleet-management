@@ -1,0 +1,370 @@
+@inherits LayoutComponentBase
+@inject NotificationClientService NotificationClient
+@inject ApiService Api
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<div class="flex min-h-screen flex-col bg-gray-50">
+    <!-- Top White Bar -->
+    <header class="sticky top-0 z-30 flex flex-col w-full shadow-md">
+        <div class="flex h-[62px] w-full items-center justify-between bg-white px-6 border-b border-gray-200">
+            <!-- Brand Logo -->
+            <div class="flex-shrink-0 flex items-center gap-3">
+                <img src="/iocl-logo.gif" alt="IndianOil" class="h-[52px] w-auto" style="object-fit: contain; mix-blend-mode: multiply;" />
+            </div>
+
+            <!-- Right Controls -->
+            <div class="flex items-center gap-3">
+                <!-- Social Links -->
+                <div class="hidden md:flex items-center gap-[3px]">
+                    <a href="https://www.facebook.com/IndianOilCorpLimited" target="_blank" rel="noopener noreferrer" title="IndianOil on Facebook" class="flex h-[26px] w-[26px] items-center justify-center text-white bg-[#1877F2] hover:opacity-80 transition-opacity">
+                        <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 fill-current"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" /></svg>
+                    </a>
+                    <a href="https://www.twitter.com/indianOilcl" target="_blank" rel="noopener noreferrer" title="IndianOil on X (Twitter)" class="flex h-[26px] w-[26px] items-center justify-center text-white bg-black hover:opacity-80 transition-opacity">
+                        <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 fill-current"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z" /></svg>
+                    </a>
+                    <a href="https://www.youtube.com/channel/UC5ho18VZHwEFSahW0Q_o-6g/feed" target="_blank" rel="noopener noreferrer" title="IndianOil on YouTube" class="flex h-[26px] w-[26px] items-center justify-center text-white bg-[#FF0000] hover:opacity-80 transition-opacity">
+                        <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 fill-current"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.95-1.96C18.88 4 12 4 12 4s-6.88 0-8.59.46a2.78 2.78 0 0 0-1.95 1.96A29 29 0 0 0 1 12a29 29 0 0 0 .46 5.58A2.78 2.78 0 0 0 3.41 19.6C5.12 20 12 20 12 20s6.88 0 8.59-.46a2.78 2.78 0 0 0 1.95-1.95A29 29 0 0 0 23 12a29 29 0 0 0-.46-5.58zM9.75 15.02V8.98L15.5 12z" /></svg>
+                    </a>
+                    <a href="https://www.instagram.com/indianoilcorp" target="_blank" rel="noopener noreferrer" title="IndianOil on Instagram" class="flex h-[26px] w-[26px] items-center justify-center text-white bg-[#C13584] hover:opacity-80 transition-opacity">
+                        <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 fill-none stroke-current stroke-2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" /></svg>
+                    </a>
+                    <a href="https://www.linkedin.com/company/indian-oil-corp-limited" target="_blank" rel="noopener noreferrer" title="IndianOil on LinkedIn" class="flex h-[26px] w-[26px] items-center justify-center text-white bg-[#0A66C2] hover:opacity-80 transition-opacity">
+                        <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 fill-current"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6zM2 9h4v12H2z" /><circle cx="4" cy="4" r="2" /></svg>
+                    </a>
+                </div>
+
+                <div class="hidden md:block h-6 w-px bg-gray-300"></div>
+
+                <!-- Notifications Dropdown -->
+                @if (currentUser?.Role != "GATEMAN")
+                {
+                    <div class="relative">
+                        <button @onclick="ToggleNotif" class="relative rounded-full p-1.5 text-gray-500 hover:bg-gray-100 transition-colors">
+                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                            </svg>
+                            @if (unreadCount > 0)
+                            {
+                                <span class="absolute top-0.5 right-0.5 flex h-[16px] w-[16px] items-center justify-center rounded-full bg-red-600 text-[8px] font-bold text-white ring-2 ring-white animate-pulse">
+                                    @unreadCount
+                                </span>
+                            }
+                        </button>
+
+                        @if (notifOpen)
+                        {
+                            <div class="absolute right-0 mt-2 w-80 rounded-lg border border-gray-200 bg-white shadow-xl z-50">
+                                <div class="flex items-center justify-between border-b border-gray-100 px-4 py-2.5">
+                                    <span class="text-xs font-bold text-gray-800 uppercase tracking-wider">Compliance Alerts</span>
+                                    @if (unreadCount > 0)
+                                    {
+                                        <button @onclick="MarkAllAsRead" class="text-[10px] font-bold text-[#F47920] hover:underline">
+                                            Clear All
+                                        </button>
+                                    }
+                                </div>
+                                <div class="max-h-72 overflow-y-auto">
+                                    @if (notifications.Count == 0)
+                                    {
+                                        <div class="py-8 text-center text-xs text-gray-400">No active compliance alerts.</div>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var n in notifications)
+                                        {
+                                            <div @onclick="() => MarkAsRead(n.Id)" class="flex gap-2 border-b border-gray-50 px-4 py-2.5 hover:bg-gray-50 cursor-pointer @(n.Status == "UNREAD" ? "bg-orange-50/30" : "")">
+                                                <span class="mt-0.5 shrink-0">
+                                                    @if (n.Type == "EXPIRED")
+                                                    {
+                                                        <svg class="h-4 w-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                                    }
+                                                    else if (n.Type == "CRITICAL")
+                                                    {
+                                                        <svg class="h-4 w-4 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                                    }
+                                                    else
+                                                    {
+                                                        <svg class="h-4 w-4 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                                    }
+                                                </span>
+                                                <div class="flex-1 min-w-0">
+                                                    <p class="text-xs font-semibold text-gray-800 truncate">@n.Title</p>
+                                                    <p class="text-[10px] text-gray-500 leading-snug mt-0.5 line-clamp-2">@n.Message</p>
+                                                    <span class="text-[8px] text-gray-400 font-bold uppercase tracking-wider mt-1 block">
+                                                        @n.CreatedAt.ToLocalTime().ToString("hh:mm tt")
+                                                    </span>
+                                                </div>
+                                                @if (n.Status == "UNREAD")
+                                                {
+                                                    <span class="h-2 w-2 rounded-full bg-[#F47920] shrink-0 mt-1.5" />
+                                                }
+                                            </div>
+                                        }
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <!-- User Badge -->
+                @if (currentUser != null)
+                {
+                    <div class="flex items-center gap-2 border-l border-gray-200 pl-3">
+                        <div class="hidden sm:block text-right">
+                            <p class="text-[12px] font-bold text-gray-800 leading-none">@currentUser.Username</p>
+                            <p class="text-[9px] text-gray-400 font-semibold uppercase tracking-widest mt-0.5">
+                                @currentUser.Role.Replace("_", " ")
+                            </p>
+                        </div>
+                        <div class="flex h-8 w-8 items-center justify-center rounded-full text-white font-bold text-[11px] uppercase bg-[#001F5B]">
+                            @currentUser.Username.Substring(0, Math.Min(2, currentUser.Username.Length))
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Navy Navy Nav Bar -->
+        <div class="flex h-[44px] w-full items-center justify-between px-6 bg-[#001F5B]">
+            <nav class="flex items-center h-full">
+                @if (isLoaded && currentUser != null)
+                {
+                    @if (currentUser.Role == "GATEMAN")
+                    {
+                        <NavLink href="/gate-entry" Match="NavLinkMatch.All" class="flex items-center gap-1.5 h-full px-4 text-[12.5px] font-semibold transition-colors border-b-2 text-white border-transparent hover:text-[#F47920] hover:border-[#F47920]/50" ActiveClass="text-[#F47920] border-[#F47920]">
+                            <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.952 11.952 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                            <span>Gate Entry</span>
+                        </NavLink>
+                    }
+                    else
+                    {
+                        <NavLink href="/dashboard" Match="NavLinkMatch.All" class="flex items-center gap-1.5 h-full px-4 text-[12.5px] font-semibold transition-colors border-b-2 text-white border-transparent hover:text-[#F47920] hover:border-[#F47920]/50" ActiveClass="text-[#F47920] border-[#F47920]">
+                            <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H6a2 2 0 01-2-2v-4zM14 16a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2v-4z" /></svg>
+                            <span>Dashboard</span>
+                        </NavLink>
+                        <NavLink href="/vehicles" class="flex items-center gap-1.5 h-full px-4 text-[12.5px] font-semibold transition-colors border-b-2 text-white border-transparent hover:text-[#F47920] hover:border-[#F47920]/50" ActiveClass="text-[#F47920] border-[#F47920]">
+                            <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10M21 16V10a1 1 0 00-1-1h-7m8 7H3" /></svg>
+                            <span>Vehicles</span>
+                        </NavLink>
+                        <NavLink href="/expiry-management" class="flex items-center gap-1.5 h-full px-4 text-[12.5px] font-semibold transition-colors border-b-2 text-white border-transparent hover:text-[#F47920] hover:border-[#F47920]/50" ActiveClass="text-[#F47920] border-[#F47920]">
+                            <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            <span>Expiry Management</span>
+                        </NavLink>
+                        <NavLink href="/renewals-history" class="flex items-center gap-1.5 h-full px-4 text-[12.5px] font-semibold transition-colors border-b-2 text-white border-transparent hover:text-[#F47920] hover:border-[#F47920]/50" ActiveClass="text-[#F47920] border-[#F47920]">
+                            <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            <span>Renewal Logs</span>
+                        </NavLink>
+
+                        @if (currentUser.Role == "SUPER_ADMIN")
+                        {
+                            <NavLink href="/departments" class="flex items-center gap-1.5 h-full px-4 text-[12.5px] font-semibold transition-colors border-b-2 text-white border-transparent hover:text-[#F47920] hover:border-[#F47920]/50" ActiveClass="text-[#F47920] border-[#F47920]">
+                                <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+                                <span>Departments</span>
+                            </NavLink>
+                            <NavLink href="/users" class="flex items-center gap-1.5 h-full px-4 text-[12.5px] font-semibold transition-colors border-b-2 text-white border-transparent hover:text-[#F47920] hover:border-[#F47920]/50" ActiveClass="text-[#F47920] border-[#F47920]">
+                                <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                                <span>User Accounts</span>
+                            </NavLink>
+                            <NavLink href="/documents" class="flex items-center gap-1.5 h-full px-4 text-[12.5px] font-semibold transition-colors border-b-2 text-white border-transparent hover:text-[#F47920] hover:border-[#F47920]/50" ActiveClass="text-[#F47920] border-[#F47920]">
+                                <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                                <span>Document Vault</span>
+                            </NavLink>
+                        }
+
+                        @if (currentUser.Role == "SUPER_ADMIN" || currentUser.Role == "DEPT_ADMIN")
+                        {
+                            <NavLink href="/audit-logs" class="flex items-center gap-1.5 h-full px-4 text-[12.5px] font-semibold transition-colors border-b-2 text-white border-transparent hover:text-[#F47920] hover:border-[#F47920]/50" ActiveClass="text-[#F47920] border-[#F47920]">
+                                <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.952 11.952 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                                <span>Audit Trail</span>
+                            </NavLink>
+                        }
+                    }
+                }
+            </nav>
+
+            <!-- Right side refinery details -->
+            <div class="flex items-center gap-4">
+                <span class="hidden md:block text-[10px] font-bold uppercase tracking-widest text-[#F47920]">
+                    Panipat Refinery
+                </span>
+                <button @onclick="ExitPortal" class="flex items-center gap-1.5 text-[11px] font-semibold text-slate-300 hover:text-red-400 transition-colors">
+                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+                    <span>Exit</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Page Content -->
+    <main class="flex-1 overflow-y-auto p-6 lg:p-8">
+        @Body
+    </main>
+
+    <!-- Footer -->
+    <footer class="flex items-center justify-between px-8 py-3 text-[10px] font-semibold text-white bg-[#001F5B]">
+        <span>© @DateTime.Now.Year Indian Oil Corporation Ltd. All rights reserved.</span>
+        <span style="color: #F47920;">Fleet Compliance &amp; Validity Monitor</span>
+    </footer>
+
+    <NotificationToast />
+</div>
+
+<div id="blazor-error-ui">
+    An unhandled error has occurred.
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss">🗙</a>
+</div>
+
+@code {
+    private List<NotificationDto> notifications = new();
+    private int unreadCount = 0;
+    private bool notifOpen = false;
+    private UserDto? currentUser;
+    private bool isLoaded = false;
+
+    protected override void OnInitialized()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        if (currentUser?.Role == "GATEMAN")
+        {
+            var relativePath = Navigation.ToBaseRelativePath(Navigation.Uri);
+            if (!relativePath.StartsWith("gate-entry", StringComparison.OrdinalIgnoreCase))
+            {
+                Navigation.NavigateTo("/gate-entry");
+            }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                if (authState.User.Identity?.IsAuthenticated == true)
+                {
+                    currentUser = await Api.GetMeAsync();
+
+                    if (currentUser?.Role == "GATEMAN")
+                    {
+                        var relativePath = Navigation.ToBaseRelativePath(Navigation.Uri);
+                        if (!relativePath.StartsWith("gate-entry", StringComparison.OrdinalIgnoreCase))
+                        {
+                            Navigation.NavigateTo("/gate-entry");
+                        }
+                    }
+                    else
+                    {
+                        await FetchNotifications();
+
+                        // Register SignalR client and start
+                        NotificationClient.OnNotificationReceived += HandleNotificationReceived;
+                        NotificationClient.OnComplianceRenewedReceived += HandleComplianceRenewedReceived;
+                        await NotificationClient.StartAsync();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading main layout state: {ex.Message}");
+            }
+
+            isLoaded = true;
+            StateHasChanged();
+        }
+    }
+
+    private async Task FetchNotifications()
+    {
+        try
+        {
+            notifications = await Api.GetNotificationsAsync();
+            unreadCount = notifications.Count(n => n.Status == "UNREAD");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error fetching notifications: {ex.Message}");
+        }
+    }
+
+    private void ToggleNotif()
+    {
+        notifOpen = !notifOpen;
+    }
+
+    private async Task MarkAsRead(int id)
+    {
+        try
+        {
+            await Api.ReadNotificationAsync(id);
+            var notif = notifications.FirstOrDefault(n => n.Id == id);
+            if (notif != null)
+            {
+                notif.Status = "READ";
+                unreadCount = notifications.Count(n => n.Status == "UNREAD");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error marking notification as read: {ex.Message}");
+        }
+    }
+
+    private async Task MarkAllAsRead()
+    {
+        try
+        {
+            await Api.ReadAllNotificationsAsync();
+            foreach (var n in notifications)
+            {
+                n.Status = "READ";
+            }
+            unreadCount = 0;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error marking all notifications as read: {ex.Message}");
+        }
+    }
+
+    private async Task ExitPortal()
+    {
+        var authProvider = (BlazorAuthStateProvider)AuthStateProvider;
+        await authProvider.LogoutAsync();
+        Navigation.NavigateTo("/login", true);
+    }
+
+    private async void HandleNotificationReceived(NotificationDto notification)
+    {
+        await InvokeAsync(async () =>
+        {
+            notifications.Insert(0, notification);
+            unreadCount = notifications.Count(n => n.Status == "UNREAD");
+            StateHasChanged();
+        });
+    }
+
+    private async void HandleComplianceRenewedReceived(object payload)
+    {
+        await InvokeAsync(async () =>
+        {
+            await FetchNotifications();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        Navigation.LocationChanged -= OnLocationChanged;
+        NotificationClient.OnNotificationReceived -= HandleNotificationReceived;
+        NotificationClient.OnComplianceRenewedReceived -= HandleComplianceRenewedReceived;
+    }
+}

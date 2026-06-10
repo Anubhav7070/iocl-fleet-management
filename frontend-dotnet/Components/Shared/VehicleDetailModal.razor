@@ -1,0 +1,508 @@
+@inject IConfiguration Config
+
+@code {
+    [Parameter]
+    public VehicleDto? Vehicle { get; set; }
+
+    [Parameter]
+    public UserDto? User { get; set; }
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    [Parameter]
+    public EventCallback<ComplianceRecordDto> OnRenew { get; set; }
+
+    private string activeTab = "compliance";
+    private List<DocItem> allDocs = new();
+    private string apiBaseUrl = string.Empty;
+
+    private static readonly Dictionary<string, string> LicenseLabels = new()
+    {
+        { "ROAD_PERMIT", "Road Permit – By RTO" },
+        { "AGE_DETERMINATION", "Date of Manufacture (Age Determination)" },
+        { "PUC", "Pollution Under Control" },
+        { "FITNESS", "Fitness License – By RTO" },
+        { "EXPLOSIVE", "Explosive License" },
+        { "GREEN_CARD", "Green Card" },
+        { "INSURANCE", "Vehicle Insurance" },
+        { "CALIBRATION", "Calibration Certificate" }
+    };
+
+    protected override void OnInitialized()
+    {
+        apiBaseUrl = Config["Backend:Url"] ?? "http://localhost:5000";
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (Vehicle == null) return;
+        allDocs.Clear();
+        
+        if (Vehicle.RegistrationDocument != null)
+        {
+            allDocs.Add(new DocItem
+            {
+                Id = $"rc-{Vehicle.Id}",
+                Label = "Registration Certificate (RC)",
+                Category = "RC",
+                FileName = Vehicle.RegistrationDocument.FileName,
+                FilePath = Vehicle.RegistrationDocument.FilePath,
+                IsVerified = Vehicle.IsVerified,
+                VerifiedBy = Vehicle.VerifiedBy,
+                Status = Vehicle.IsVerified ? "VERIFIED" : "PENDING"
+            });
+        }
+
+        if (Vehicle.ComplianceRecords != null)
+        {
+            foreach (var rec in Vehicle.ComplianceRecords)
+            {
+                if (rec.Document != null && !string.IsNullOrEmpty(rec.Document.FilePath))
+                {
+                    allDocs.Add(new DocItem
+                    {
+                        Id = $"doc-{rec.Id}",
+                        Label = LicenseLabels.TryGetValue(rec.LicenseType, out var lbl) ? lbl : rec.LicenseType.Replace("_", " "),
+                        Category = "CERT",
+                        FileName = rec.Document.FileName,
+                        FilePath = rec.Document.FilePath,
+                        IsVerified = rec.IsVerified,
+                        VerifiedBy = rec.VerifiedBy,
+                        Status = rec.Status,
+                        ExpiryDate = rec.ExpiryDate,
+                        LicenseNumber = rec.LicenseNumber
+                    });
+                }
+            }
+        }
+    }
+
+    private string Fmt(string? d)
+    {
+        if (string.IsNullOrEmpty(d) || d == "PENDING") return "Pending";
+        if (DateTime.TryParse(d, out var dt))
+        {
+            return dt.ToString("dd-MMM-yyyy");
+        }
+        return d;
+    }
+
+    private string FmtFull(DateTime? d)
+    {
+        if (!d.HasValue) return "—";
+        return d.Value.ToLocalTime().ToString("dd-MMM-yyyy hh:mm tt");
+    }
+
+    private int? DaysLeft(string? expiry)
+    {
+        if (string.IsNullOrEmpty(expiry) || expiry == "PENDING") return null;
+        if (DateTime.TryParse(expiry, out var exp))
+        {
+            var today = DateTime.Today;
+            return (int)Math.Ceiling((exp.Date - today).TotalDays);
+        }
+        return null;
+    }
+
+    private string GetFileExt(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return "";
+        var parts = name.Split('.');
+        return parts.Length > 1 ? parts[^1].ToLower() : "";
+    }
+
+    private string GetOverallStatusLabel(string status)
+    {
+        return status switch
+        {
+            "FULLY_COMPLIANT" => "VALID",
+            "WARNING" => "EXPIRING SOON",
+            "MEDIUM_CRITICAL" => "CRITICAL",
+            "HIGH_CRITICAL" => "HIGH CRITICAL",
+            "EXPIRED" => "EXPIRED",
+            _ => status
+        };
+    }
+
+    private string GetOverallStatusBadgeClass(string status)
+    {
+        return status switch
+        {
+            "FULLY_COMPLIANT" => "bg-emerald-100 text-emerald-700",
+            "WARNING" => "bg-amber-100 text-amber-700",
+            "MEDIUM_CRITICAL" => "bg-orange-100 text-orange-700",
+            "HIGH_CRITICAL" => "bg-red-100 text-red-600",
+            "EXPIRED" => "bg-red-700 text-white",
+            _ => "bg-slate-100 text-slate-700"
+        };
+    }
+
+    private class DocItem
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Label { get; set; } = string.Empty;
+        public string Category { get; set; } = string.Empty;
+        public string FileName { get; set; } = string.Empty;
+        public string FilePath { get; set; } = string.Empty;
+        public bool IsVerified { get; set; }
+        public string? VerifiedBy { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public string? ExpiryDate { get; set; }
+        public string? LicenseNumber { get; set; }
+    }
+}
+
+@if (Vehicle != null)
+{
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-2 sm:p-4" @onclick="OnClose">
+        <div class="relative w-full max-w-5xl rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col max-h-[96vh]" @onclick:stopPropagation>
+
+            <!-- HEADER -->
+            <div class="flex items-start justify-between gap-4 bg-[#0054A6] px-6 py-4 shrink-0">
+                <div class="flex items-center gap-4">
+                    <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-white/15 border border-white/30 text-white font-extrabold text-xs tracking-widest uppercase">
+                        @Vehicle.VehicleNumber.Substring(0, Math.Min(6, Vehicle.VehicleNumber.Length))
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <h2 class="text-lg font-extrabold text-white tracking-widest font-mono">@Vehicle.VehicleNumber</h2>
+                            <span class="rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-widest @GetOverallStatusBadgeClass(Vehicle.Status)">
+                                @GetOverallStatusLabel(Vehicle.Status)
+                            </span>
+                        </div>
+                        <p class="text-[11px] text-white/70 font-semibold mt-0.5 uppercase tracking-wider">
+                            @Vehicle.VehicleType &nbsp;·&nbsp; @Vehicle.Department?.Name
+                            @if (!string.IsNullOrEmpty(Vehicle.Department?.Division))
+                            {
+                                @($" ({Vehicle.Department.Division})")
+                            }
+                        </p>
+                    </div>
+                </div>
+                <button @onclick="OnClose" class="ml-auto p-1.5 rounded-lg bg-white/10 hover:bg-white/25 text-white transition-colors">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <!-- META ROW -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-0 border-b border-slate-100 bg-slate-50 shrink-0">
+                <div class="flex items-center gap-3 px-5 py-3 border-r border-slate-100">
+                    <svg class="h-4 w-4 text-[#0054A6] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                    <div class="min-w-0">
+                        <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Driver</p>
+                        <p class="text-xs font-bold text-slate-800 truncate mt-0.5">@(string.IsNullOrEmpty(Vehicle.DriverName) ? "N/A" : Vehicle.DriverName)</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-3 px-5 py-3 border-r border-slate-100">
+                    <svg class="h-4 w-4 text-[#0054A6] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+                    <div class="min-w-0">
+                        <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Department</p>
+                        <p class="text-xs font-bold text-slate-800 truncate mt-0.5">@(string.IsNullOrEmpty(Vehicle.Department?.Name) ? "N/A" : Vehicle.Department.Name)</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-3 px-5 py-3 border-r border-slate-100">
+                    <svg class="h-4 w-4 text-[#0054A6] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10M21 16V10a1 1 0 00-1-1h-7m8 7H3" /></svg>
+                    <div class="min-w-0">
+                        <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Vendor</p>
+                        <p class="text-xs font-bold text-slate-800 truncate mt-0.5">@(string.IsNullOrEmpty(Vehicle.VendorName) ? "N/A" : Vehicle.VendorName)</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-3 px-5 py-3">
+                    <svg class="h-4 w-4 text-[#0054A6] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    <div class="min-w-0">
+                        <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Last Updated By</p>
+                        <p class="text-xs font-bold text-slate-800 truncate mt-0.5">System</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TABS -->
+            <div class="flex gap-0 border-b border-slate-200 bg-white px-2 shrink-0 overflow-x-auto">
+                <button @onclick='() => activeTab = "compliance"' class='flex items-center gap-1.5 px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 whitespace-nowrap transition-colors @(activeTab == "compliance" ? "border-[#0054A6] text-[#0054A6]" : "border-transparent text-slate-500 hover:text-slate-700")'>
+                    Compliance
+                    <span class="rounded-full px-1.5 py-0.5 text-[9px] font-extrabold @(activeTab == "compliance" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500")">
+                        @(Vehicle.ComplianceRecords?.Count ?? 0)
+                    </span>
+                </button>
+                <button @onclick='() => activeTab = "documents"' class='flex items-center gap-1.5 px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 whitespace-nowrap transition-colors @(activeTab == "documents" ? "border-[#0054A6] text-[#0054A6]" : "border-transparent text-slate-500 hover:text-slate-700")'>
+                    Documents
+                    <span class="rounded-full px-1.5 py-0.5 text-[9px] font-extrabold @(activeTab == "documents" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500")">
+                        @allDocs.Count
+                    </span>
+                </button>
+                <button @onclick='() => activeTab = "rc"' class='flex items-center gap-1.5 px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 whitespace-nowrap transition-colors @(activeTab == "rc" ? "border-[#0054A6] text-[#0054A6]" : "border-transparent text-slate-500 hover:text-slate-700")'>
+                    RC & QR
+                </button>
+            </div>
+
+            <!-- BODY -->
+            <div class="flex-1 overflow-y-auto">
+                @if (activeTab == "compliance")
+                {
+                    <div class="p-5">
+                        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4">
+                            8 Compliance Document Slots — Vehicle Permit Register
+                        </p>
+                        <div class="space-y-3">
+                            @if (Vehicle.ComplianceRecords != null && Vehicle.ComplianceRecords.Count > 0)
+                            {
+                                @foreach (var rec in Vehicle.ComplianceRecords)
+                                {
+                                    var days = DaysLeft(rec.ExpiryDate);
+                                    var hasDoc = rec.Document != null && !string.IsNullOrEmpty(rec.Document.FilePath);
+                                    
+                                    <div class="rounded-xl border border-slate-200 bg-white p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:shadow-sm transition-all">
+                                        <div class="flex items-start gap-3 flex-1">
+                                            <span class="mt-1 shrink-0">
+                                                @if (rec.Status == "ACTIVE")
+                                                {
+                                                    <svg class="h-5 w-5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.952 11.952 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                                                }
+                                                else if (rec.Status == "WARNING")
+                                                {
+                                                    <svg class="h-5 w-5 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                                }
+                                                else
+                                                {
+                                                    <svg class="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                                }
+                                            </span>
+                                            <div class="min-w-0">
+                                                <p class="text-sm font-bold text-slate-800">
+                                                    License Type – @(LicenseLabels.TryGetValue(rec.LicenseType, out var lbl) ? lbl : rec.LicenseType.Replace("_", " "))
+                                                </p>
+                                                <p class="text-xs font-semibold text-slate-700 mt-0.5">
+                                                    Validity: <span class="font-bold">@Fmt(rec.IssueDate) – @Fmt(rec.ExpiryDate)</span>
+                                                </p>
+                                                @if (!string.IsNullOrEmpty(rec.LicenseNumber) && rec.LicenseNumber != "PENDING")
+                                                {
+                                                    <p class="text-[10px] text-slate-500 mt-0.5 font-mono">
+                                                        Lic #@rec.LicenseNumber
+                                                        @if (!string.IsNullOrEmpty(rec.IssuingAuthority) && rec.IssuingAuthority != "PENDING")
+                                                        {
+                                                            @($" • {rec.IssuingAuthority}")
+                                                        }
+                                                    </p>
+                                                }
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap">
+                                            @if (days.HasValue)
+                                            {
+                                                <span class="text-[10px] font-bold px-2 py-1 rounded-full @(days < 0 ? "bg-red-100 text-red-700" : days == 0 ? "bg-yellow-100 text-yellow-700" : "bg-emerald-100 text-emerald-700")">
+                                                    @(days < 0 ? $"{Math.Abs(days.Value)}d overdue" : days == 0 ? "Expires today" : $"{days.Value}d left")
+                                                </span>
+                                            }
+                                            @if (hasDoc)
+                                            {
+                                                <a href="@($"{apiBaseUrl}{rec.Document!.FilePath}")" target="_blank" rel="noopener noreferrer" class="flex items-center gap-1 rounded border border-blue-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-blue-600 hover:bg-blue-50 transition-colors">
+                                                    <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                                    View Doc
+                                                </a>
+                                            }
+                                            @if (User?.Role != "VIEWER")
+                                            {
+                                                <button @onclick="() => OnRenew.InvokeAsync(rec)" class="flex items-center gap-1 rounded border border-orange-300 bg-white px-2.5 py-1.5 text-[10px] font-bold text-orange-600 hover:bg-orange-50 transition-colors">
+                                                    <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+                                                    Renew
+                                                </button>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <div class="flex flex-col items-center justify-center py-12 text-slate-400">
+                                    <svg class="h-10 w-10 mb-2 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.952 11.952 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                                    <p class="text-sm font-semibold">No compliance records found.</p>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+
+                @if (activeTab == "documents")
+                {
+                    <div class="p-5">
+                        <div class="flex items-center justify-between mb-5">
+                            <div>
+                                <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                                    All Uploaded Files for Vehicle @Vehicle.VehicleNumber
+                                </p>
+                                <p class="text-xs text-slate-600 font-semibold mt-0.5">
+                                    @allDocs.Count document@(allDocs.Count != 1 ? "s" : "") in database
+                                </p>
+                            </div>
+                            <div class="flex gap-3">
+                                <div class="text-center">
+                                    <p class="text-lg font-extrabold text-emerald-600">@allDocs.Count(d => d.IsVerified)</p>
+                                    <p class="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Verified</p>
+                                </div>
+                                <div class="text-center">
+                                    <p class="text-lg font-extrabold text-amber-500">@allDocs.Count(d => !d.IsVerified)</p>
+                                    <p class="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Pending</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        @if (allDocs.Count == 0)
+                        {
+                            <div class="flex flex-col items-center justify-center py-14 rounded-xl border-2 border-dashed border-slate-200 text-slate-400">
+                                <svg class="h-12 w-12 mb-3 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                                <p class="text-sm font-semibold">No documents uploaded yet</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                @foreach (var doc in allDocs)
+                                {
+                                    var isRC = doc.Category == "RC";
+                                    var days = doc.ExpiryDate != null ? DaysLeft(doc.ExpiryDate) : null;
+                                    
+                                    <div class="rounded-xl border-2 bg-white p-4 flex flex-col gap-3 hover:shadow-md transition-all @(isRC ? "border-purple-200" : "border-slate-200")">
+                                        <div class="flex items-start gap-3">
+                                            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border @(isRC ? "bg-purple-50 border-purple-200" : "bg-blue-50 border-blue-200")">
+                                                <svg class="h-5 w-5 @(isRC ? "text-purple-600" : "text-[#0054A6]")" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                            </div>
+                                            <div class="min-w-0 flex-1">
+                                                <p class="text-xs font-bold text-slate-800 leading-tight truncate" title="@doc.Label">@doc.Label</p>
+                                                <span class="inline-block mt-1 rounded px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide @(isRC ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700")">
+                                                    @(isRC ? "RC DOCUMENT" : "CERTIFICATE")
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <div class="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                                            <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">File</p>
+                                            <p class="text-[10px] font-mono text-slate-700 truncate" title="@doc.FileName">@doc.FileName</p>
+                                        </div>
+
+                                        @if (!string.IsNullOrEmpty(doc.ExpiryDate))
+                                        {
+                                            <div class="rounded-lg px-3 py-2 bg-slate-50 border border-slate-100">
+                                                <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Expiry</p>
+                                                <div class="flex items-center justify-between">
+                                                    <p class="text-[10px] font-bold text-slate-700">@Fmt(doc.ExpiryDate)</p>
+                                                    @if (days.HasValue)
+                                                    {
+                                                        <span class="text-[9px] font-extrabold rounded-full px-2 py-0.5 @(days.Value < 0 ? "bg-red-100 text-red-600" : "bg-emerald-100 text-emerald-600")">
+                                                            @(days.Value < 0 ? $"{Math.Abs(days.Value)}d overdue" : $"{days.Value}d left")
+                                                        </span>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
+
+                                        <div class="flex items-center gap-2 rounded-lg px-3 py-2 @(doc.IsVerified ? "bg-emerald-50 border border-emerald-200" : "bg-amber-50 border border-amber-200")">
+                                            @if (doc.IsVerified)
+                                            {
+                                                <svg class="h-4 w-4 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                            }
+                                            else
+                                            {
+                                                <svg class="h-4 w-4 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                                            }
+                                            <div class="min-w-0">
+                                                <p class="text-[9px] font-extrabold uppercase tracking-widest @(doc.IsVerified ? "text-emerald-700" : "text-amber-600")">
+                                                    @(doc.IsVerified ? "Verified" : "Pending Verification")
+                                                </p>
+                                                @if (doc.IsVerified && !string.IsNullOrEmpty(doc.VerifiedBy))
+                                                {
+                                                    <p class="text-[8px] text-emerald-600 font-mono">by @doc.VerifiedBy</p>
+                                                }
+                                            </div>
+                                        </div>
+
+                                        <div class="flex gap-2 mt-auto">
+                                            <a href="@($"{apiBaseUrl}{doc.FilePath}")" target="_blank" rel="noopener noreferrer" class="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 px-3 py-2 text-[10px] font-bold text-blue-700 transition-colors">
+                                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                                View
+                                            </a>
+                                            <a href="@($"{apiBaseUrl}{doc.FilePath}")" download="@doc.FileName" class="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 px-3 py-2 text-[10px] font-bold text-slate-600 transition-colors">
+                                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                                Download
+                                            </a>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (activeTab == "rc")
+                {
+                    <div class="p-5 space-y-5">
+                        <div class="rounded-xl border border-blue-100 bg-blue-50/30 p-5 flex flex-col sm:flex-row items-center gap-6">
+                            <div class="shrink-0">
+                                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 text-center">Gate Entry QR</p>
+                                <img src="@($"https://api.qrserver.com/v1/create-qr-code/?data={Uri.EscapeDataString($"{Navigation.BaseUri}verify/vehicle/{Vehicle.Id}")}&size=160x160&margin=8")" alt="Gate QR" class="h-32 w-32 rounded-lg border border-blue-200 bg-white p-1" />
+                            </div>
+                            <div>
+                                <p class="text-xs font-semibold text-slate-700">
+                                    Scan this QR code at the refinery gate to instantly verify vehicle compliance status.
+                                </p>
+                                <p class="text-[10px] text-slate-400 mt-2 font-mono break-all">
+                                    @($"{Navigation.BaseUri}verify/vehicle/{Vehicle.Id}")
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="rounded-xl border border-slate-200 bg-white p-5">
+                            <div class="flex items-center gap-2 mb-4">
+                                <svg class="h-4 w-4 text-[#0054A6]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                <h4 class="text-sm font-bold text-slate-800">Registration Certificate (RC)</h4>
+                                <span class="ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold @(Vehicle.IsVerified ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")">
+                                    @(Vehicle.IsVerified ? "✓ Verified" : "⏳ Pending Verification")
+                                </span>
+                            </div>
+                            @if (Vehicle.RegistrationDocument != null)
+                            {
+                                <div class="flex flex-col sm:flex-row gap-3">
+                                    <div class="flex-1 rounded-lg border border-slate-100 bg-slate-50 p-3">
+                                        <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">File Name</p>
+                                        <p class="text-xs font-semibold text-slate-700 mt-1 break-all">@Vehicle.RegistrationDocument.FileName</p>
+                                        @if (!string.IsNullOrEmpty(Vehicle.VerifiedBy))
+                                        {
+                                            <p class="text-[9px] text-emerald-600 font-bold mt-2">Verified by: @Vehicle.VerifiedBy</p>
+                                        }
+                                    </div>
+                                    <div class="flex flex-col gap-2 shrink-0">
+                                        <a href="@($"{apiBaseUrl}{Vehicle.RegistrationDocument.FilePath}")" target="_blank" rel="noopener noreferrer" class="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 px-4 py-2.5 text-xs font-bold text-blue-700 transition-colors">
+                                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                                            View RC Document
+                                        </a>
+                                        <a href="@($"{apiBaseUrl}{Vehicle.RegistrationDocument.FilePath}")" download class="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 px-4 py-2.5 text-xs font-bold text-slate-600 transition-colors">
+                                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                            Download RC
+                                        </a>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="flex items-center gap-2 text-amber-600 bg-amber-50 rounded-lg border border-amber-200 p-3">
+                                    <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                    <p class="text-xs font-semibold">No registration document uploaded yet.</p>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <!-- FOOTER -->
+            <div class="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50 px-6 py-3 shrink-0">
+                <p class="text-[10px] text-slate-400 font-mono">
+                    IOCL Panipat Refinery · Fleet Compliance System · Vehicle #@Vehicle.Id · @allDocs.Count docs
+                </p>
+                <button @onclick="OnClose" class="rounded-lg border border-slate-200 hover:bg-slate-100 px-5 py-2 text-xs font-bold text-slate-600 transition-colors">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+}

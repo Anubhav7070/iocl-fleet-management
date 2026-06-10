@@ -1,0 +1,855 @@
+@page "/vehicles"
+@attribute [Authorize]
+@inject ApiService Api
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@inject IConfiguration Config
+
+<div class="space-y-6 page-enter">
+    <!-- Title and Action Bar -->
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 rounded-xl bg-slate-900 border border-slate-800 text-white p-6 shadow-md shadow-slate-900/10">
+        <div>
+            <h2 class="text-xl font-bold tracking-wide uppercase">Fleet Registry Terminal</h2>
+            <p class="text-xs text-slate-400 mt-1">
+                Manage refinery-registered vehicles, compliance clearance, and gate scanning.
+            </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3">
+            <button @onclick="OpenScanModal" class="flex items-center gap-1.5 rounded bg-orange-600 hover:bg-orange-700 hover:scale-105 active:scale-95 px-4 py-2 text-xs font-bold text-white shadow transition-all duration-200">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h.01M16 16h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <span>Gate Scan (Camera)</span>
+            </button>
+            @if (currentUser?.Role != "VIEWER")
+            {
+                <button @onclick="OpenCreateModal" class="flex items-center gap-1.5 rounded bg-blue-600 hover:bg-blue-700 hover:scale-105 active:scale-95 px-4 py-2 text-xs font-bold text-white shadow transition-all duration-200">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+                    <span>Register Vehicle</span>
+                </button>
+            }
+        </div>
+    </div>
+
+    <!-- Filter Control Panel -->
+    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col md:flex-row md:items-center gap-4">
+        <div class="relative flex-1">
+            <span class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            </span>
+            <input type="text" @bind="search" @bind:event="oninput" @bind:after="FetchVehicles" placeholder="Search vehicle number, driver, vendor..." class="w-full rounded border border-slate-200 bg-slate-50 pl-9 pr-4 py-2 text-xs font-semibold text-slate-600 placeholder-slate-400 outline-none focus:border-blue-500 focus:bg-white transition-all" />
+        </div>
+
+        <div class="flex items-center gap-3">
+            <select @bind="filterDept" @bind:after="FetchVehicles" class="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 outline-none focus:border-blue-500 transition-all">
+                <option value="">All Divisions</option>
+                @foreach (var dept in departments)
+                {
+                    <option value="@dept.Id">@dept.Code - @dept.Name</option>
+                }
+            </select>
+
+            <select @bind="filterStatus" @bind:after="FetchVehicles" class="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 outline-none focus:border-blue-500 transition-all">
+                <option value="">All Statuses</option>
+                <option value="FULLY_COMPLIANT">FULLY COMPLIANT</option>
+                <option value="WARNING">WARNING</option>
+                <option value="MEDIUM_CRITICAL">CRITICAL</option>
+                <option value="HIGH_CRITICAL">HIGH CRITICAL</option>
+                <option value="EXPIRED">EXPIRED</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Vehicles List Grid -->
+    @if (loading)
+    {
+        <div class="flex h-64 items-center justify-center">
+            <div class="h-10 w-10 animate-spin rounded-full border-4 border-iocl-orange border-t-transparent"></div>
+            <span class="ml-3 text-sm font-semibold text-slate-500">Querying Fleet Registry...</span>
+        </div>
+    }
+    else if (vehicles.Count == 0)
+    {
+        <div class="rounded-xl border-2 border-dashed border-slate-200 bg-white py-16 text-center text-slate-400">
+            <svg class="h-12 w-12 mx-auto mb-3 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10M21 16V10a1 1 0 00-1-1h-7m8 7H3" /></svg>
+            <p class="text-sm font-bold text-slate-500">No vehicles registered matching criteria.</p>
+        </div>
+    }
+    else
+    {
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            @foreach (var vehicle in vehicles)
+            {
+                <div class="rounded-xl border border-slate-200 bg-white overflow-hidden card-hover flex flex-col justify-between">
+                    <div>
+                        <!-- Card Header -->
+                        <div class="flex items-center justify-between text-white p-4 font-mono @GetHeaderBg(vehicle.Status)">
+                            <div>
+                                <h3 class="text-base font-extrabold tracking-wider">@vehicle.VehicleNumber</h3>
+                                <p class="text-[9px] font-bold text-white/80 uppercase tracking-widest mt-0.5">@vehicle.VehicleType</p>
+                            </div>
+                            <span class="rounded-full bg-white/20 border border-white/30 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-widest">
+                                @GetStatusLabel(vehicle.Status)
+                            </span>
+                        </div>
+
+                        <!-- Card Body -->
+                        <div class="p-4 space-y-4">
+                            <div class="grid grid-cols-2 gap-3 text-xs">
+                                <div>
+                                    <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Driver</p>
+                                    <p class="font-bold text-slate-700 truncate mt-0.5">@(string.IsNullOrEmpty(vehicle.DriverName) ? "N/A" : vehicle.DriverName)</p>
+                                </div>
+                                <div>
+                                    <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Vendor</p>
+                                    <p class="font-bold text-slate-700 truncate mt-0.5">@(string.IsNullOrEmpty(vehicle.VendorName) ? "N/A" : vehicle.VendorName)</p>
+                                </div>
+                                <div class="col-span-2 border-t border-slate-50 pt-2">
+                                    <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Department</p>
+                                    <p class="font-bold text-[#0054A6] truncate mt-0.5">@vehicle.Department?.Code – @vehicle.Department?.Name</p>
+                                </div>
+                            </div>
+
+                            <!-- Compliance Indicators -->
+                            <div class="border-t border-slate-100 pt-3">
+                                <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2">Compliance Slots</p>
+                                <div class="flex flex-wrap gap-2">
+                                    @foreach (var rec in vehicle.ComplianceRecords)
+                                    {
+                                        <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold border @GetBadgeClass(rec.Status)" title="@rec.LicenseType: @rec.Status">
+                                            <span class="h-1.5 w-1.5 rounded-full @GetDotColor(rec.Status)"></span>
+                                            <span>@rec.LicenseType.Replace("_", " ")</span>
+                                        </span>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Card Actions -->
+                    <div class="border-t border-slate-100 bg-slate-50 p-4 flex items-center justify-between gap-3 mt-auto">
+                        <button @onclick="() => OpenQrModal(vehicle)" class="flex items-center gap-1.5 rounded border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 px-3 py-1.5 text-xs font-bold transition-all">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h.01M16 16h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            <span>QR Code</span>
+                        </button>
+                        <div class="flex items-center gap-2">
+                            <button @onclick="() => ViewVehicle(vehicle.Id)" class="rounded bg-blue-50 hover:bg-blue-100 text-[#0054A6] px-3.5 py-1.5 text-xs font-bold transition-all">
+                                View Details
+                            </button>
+                            @if (currentUser?.Role == "SUPER_ADMIN")
+                            {
+                                <button @onclick="() => DeleteVehicle(vehicle.Id)" class="rounded bg-red-50 hover:bg-red-100 text-red-600 p-1.5 transition-all" title="Decommission Vehicle">
+                                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<!-- Details Modal -->
+<VehicleDetailModal Vehicle="@selectedVehicle" User="@currentUser" OnClose="() => selectedVehicle = null" OnRenew="HandleRenewTrigger" />
+
+<!-- QR Display Modal -->
+@if (isQrOpen && qrModalVehicle != null)
+{
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" @onclick="() => isQrOpen = false">
+        <div class="relative w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden p-6" @onclick:stopPropagation>
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 class="text-sm font-bold text-slate-800">Vehicle Gate Pass</h3>
+                <button @onclick="() => isQrOpen = false" class="text-slate-400 hover:text-slate-600">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            
+            <div id="printable-qr" class="flex flex-col items-center py-6 text-center">
+                <div class="bg-gradient-to-br from-[#0054A6] to-blue-800 text-white w-full rounded-xl p-4 mb-5 shadow-inner">
+                    <p class="text-xs uppercase tracking-widest font-bold opacity-85">IOCL Gate Pass</p>
+                    <p class="text-lg font-extrabold font-mono tracking-wider mt-1">@qrModalVehicle.VehicleNumber</p>
+                    <p class="text-[10px] opacity-80 mt-0.5">@qrModalVehicle.Department?.Code - @qrModalVehicle.VehicleType</p>
+                </div>
+                
+                <img src="@($"https://api.qrserver.com/v1/create-qr-code/?data={Uri.EscapeDataString($"{Navigation.BaseUri}verify/vehicle/{qrModalVehicle.Id}")}&size=200x200&margin=10")" alt="Gate QR" class="h-44 w-44 rounded-xl border border-slate-200 p-2 bg-white shadow-md shadow-slate-100" />
+                
+                <p class="text-[10px] text-slate-400 font-mono mt-4 break-all px-2 select-all">
+                    @($"{Navigation.BaseUri}verify/vehicle/{qrModalVehicle.Id}")
+                </p>
+            </div>
+
+            <div class="flex items-center gap-3 border-t border-slate-100 pt-4 mt-2">
+                <button @onclick='() => JS.InvokeVoidAsync("print")' class="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-[#0054A6] hover:bg-blue-700 text-white px-4 py-2.5 text-xs font-bold transition-all shadow shadow-blue-600/10">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                    Print Gate Pass
+                </button>
+                <button @onclick="() => isQrOpen = false" class="flex-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 px-4 py-2.5 text-xs font-bold transition-all">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Create Vehicle Modal -->
+@if (isCreateOpen)
+{
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" @onclick="() => isCreateOpen = false">
+        <div class="relative w-full max-w-2xl rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col max-h-[92vh]" @onclick:stopPropagation>
+
+            <!-- Modal Header -->
+            <div class="bg-[#001F5B] text-white px-6 py-4 flex items-center justify-between shrink-0">
+                <div>
+                    <h3 class="text-sm font-bold uppercase tracking-wider">Register New Vehicle</h3>
+                    <p class="text-[9px] text-blue-300 font-semibold mt-0.5 uppercase tracking-widest">
+                        RC Copy + 8 compliance documents are mandatory (@uploadedCount/9 uploaded)
+                    </p>
+                </div>
+                <button @onclick="() => isCreateOpen = false" class="text-white/80 hover:text-white">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <!-- Scrollable body -->
+            <div class="overflow-y-auto flex-1 p-6 space-y-5">
+
+                @if (!string.IsNullOrEmpty(uploadError))
+                {
+                    <div class="rounded bg-red-50 border border-red-200 text-red-600 text-xs p-3 font-semibold">
+                        @uploadError
+                    </div>
+                }
+
+                <!-- Vehicle Info Row -->
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="col-span-2">
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Vehicle Registration Number *</label>
+                        <input type="text" @bind="newVehicle.VehicleNumber" required placeholder="e.g. HR26AB1234"
+                               class="w-full rounded border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:border-blue-500 transition-all font-mono uppercase" />
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Vehicle Type *</label>
+                        <select @bind="newVehicle.VehicleType" class="w-full rounded border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:border-blue-500 transition-all">
+                            <option>Petroleum Tanker</option>
+                            <option>LPG Bullet</option>
+                            <option>Cargo Truck</option>
+                            <option>Operator Car</option>
+                            <option>Fire Tender</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Driver Name</label>
+                        <input type="text" @bind="newVehicle.DriverName" placeholder="Driver name"
+                               class="w-full rounded border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:border-blue-500 transition-all" />
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Vendor Name</label>
+                        <input type="text" @bind="newVehicle.VendorName" placeholder="Vendor name"
+                               class="w-full rounded border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:border-blue-500 transition-all" />
+                    </div>
+                    @if (currentUser?.Role == "SUPER_ADMIN")
+                    {
+                        <div class="col-span-2">
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Department Assignment *</label>
+                            <select @bind="newVehicle.DepartmentId" required class="w-full rounded border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:border-blue-500 transition-all">
+                                <option value="">Choose department</option>
+                                @foreach (var dept in departments)
+                                {
+                                    <option value="@dept.Id">@dept.Code - @dept.Name</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                </div>
+
+                <!-- Documents Section -->
+                <div class="border-t border-slate-100 pt-4">
+                    <p class="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest mb-3">
+                        Document Uploads (All 9 Required)
+                        <span class="ml-2 text-[8px] font-bold @(uploadedCount == 9 ? "text-emerald-600 bg-emerald-50 border-emerald-200" : "text-amber-600 bg-amber-50 border-amber-200") border rounded px-1.5 py-0.5">
+                            @uploadedCount / 9 Uploaded
+                        </span>
+                    </p>
+
+                    <!-- RC Copy row -->
+                    <div class="mb-2 rounded-lg border @(rcFile != null ? "border-emerald-300 bg-emerald-50/30" : "border-red-200 bg-red-50/20") p-3">
+                        <div class="flex items-center justify-between mb-1.5">
+                            <span class="text-[10px] font-extrabold text-slate-700 uppercase tracking-wide flex items-center gap-1.5">
+                                <span class="h-2 w-2 rounded-full @(rcFile != null ? "bg-emerald-500" : "bg-red-400")"></span>
+                                Registration Certificate (RC Copy) *
+                            </span>
+                            @if (rcFile != null)
+                            {
+                                <span class="text-[8px] font-bold text-emerald-600 bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded">✓ @rcFile.Name</span>
+                            }
+                            else
+                            {
+                                <span class="text-[8px] font-bold text-red-500 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded">Required</span>
+                            }
+                        </div>
+                        <div class="relative border border-dashed @(rcFile != null ? "border-emerald-300" : "border-red-200") rounded p-2 hover:bg-white transition-colors cursor-pointer text-center">
+                            <InputFile OnChange='e => HandleComplianceFile(e, "RC")' class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                            <p class="text-[9px] text-slate-500 font-semibold">@(rcFile != null ? "Replace file" : "Click to upload PDF / Image")</p>
+                        </div>
+                    </div>
+
+                    <!-- 8 Compliance doc rows -->
+                    @foreach (var type in complianceDocTypes)
+                    {
+                        var label = type.Replace("_", " ");
+                        var hasFile = complianceDocs.ContainsKey(type) && complianceDocs[type].File != null;
+                        var t = type; // capture for lambdas
+                        <div class="mb-2 rounded-lg border @(hasFile ? "border-emerald-300 bg-emerald-50/30" : "border-red-200 bg-red-50/20") p-3">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-[10px] font-extrabold text-slate-700 uppercase tracking-wide flex items-center gap-1.5">
+                                    <span class="h-2 w-2 rounded-full @(hasFile ? "bg-emerald-500" : "bg-red-400")"></span>
+                                    @label *
+                                </span>
+                                @if (hasFile)
+                                {
+                                    <span class="text-[8px] font-bold text-emerald-600 bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded">✓ @complianceDocs[t].File!.Name</span>
+                                }
+                                else
+                                {
+                                    <span class="text-[8px] font-bold text-red-500 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded">Required</span>
+                                }
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
+                                <!-- File upload -->
+                                <div class="relative border border-dashed @(hasFile ? "border-emerald-300" : "border-red-200") rounded p-2 hover:bg-slate-50 transition-colors cursor-pointer text-center">
+                                    <InputFile OnChange="e => HandleComplianceFile(e, t)" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                                    <p class="text-[9px] text-slate-500 font-semibold">@(hasFile ? "Replace" : "Upload doc")</p>
+                                </div>
+                                <!-- License No -->
+                                <input type="text"
+                                       value="@(complianceDocs.ContainsKey(t) ? complianceDocs[t].LicNo : "")"
+                                       @onchange="e => SetLicNo(t, e.Value?.ToString() ?? string.Empty)"
+                                       placeholder="License / Cert No."
+                                       class="rounded border border-slate-200 px-2 py-1.5 text-[10px] font-semibold text-slate-700 outline-none focus:border-blue-500 transition-all font-mono" />
+                                <!-- Issue Date -->
+                                <input type="date"
+                                       value="@(complianceDocs.ContainsKey(t) ? complianceDocs[t].IssueDate : "")"
+                                       @onchange="e => SetIssueDate(t, e.Value?.ToString() ?? string.Empty)"
+                                       class="rounded border border-slate-200 px-2 py-1.5 text-[10px] font-semibold text-slate-600 outline-none focus:border-blue-500 transition-all"
+                                       title="Issue Date" />
+                                <!-- Expiry date + extract button -->
+                                <div class="flex gap-1">
+                                    <input type="date"
+                                           value="@(complianceDocs.ContainsKey(t) ? complianceDocs[t].ExpiryDate : "")"
+                                           @onchange="e => SetExpiryDate(t, e.Value?.ToString() ?? string.Empty)"
+                                           class="flex-1 rounded border border-slate-200 px-2 py-1.5 text-[10px] font-semibold text-slate-600 outline-none focus:border-blue-500 transition-all"
+                                           title="Expiry Date" />
+                                    @if (hasFile && !extractingDate.Contains(t))
+                                    {
+                                        <button type="button" @onclick="() => AutoExtractDate(t)"
+                                                title="Auto-extract date from document"
+                                                class="shrink-0 rounded border border-blue-200 bg-blue-50 hover:bg-blue-100 px-2 text-blue-600 text-[9px] font-bold transition-colors">
+                                            ⚡
+                                        </button>
+                                    }
+                                    else if (extractingDate.Contains(t))
+                                    {
+                                        <span class="shrink-0 px-2 flex items-center">
+                                            <span class="h-3 w-3 animate-spin rounded-full border-2 border-blue-500 border-t-transparent"></span>
+                                        </span>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- Footer actions -->
+            <div class="border-t border-slate-100 px-6 py-4 flex items-center gap-3 bg-slate-50 shrink-0">
+                <button type="button" @onclick="HandleCreateVehicle"
+                        disabled="@(isSubmitting || uploadedCount < 9)"
+                        class="flex-1 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2.5 text-xs font-bold transition-all flex items-center justify-center gap-2">
+                    @if (isSubmitting)
+                    {
+                        <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                        <span>Registering...</span>
+                    }
+                    else if (uploadedCount < 9)
+                    {
+                        <span>Upload all 9 docs to proceed (@uploadedCount/9)</span>
+                    }
+                    else
+                    {
+                        <span>Register Vehicle</span>
+                    }
+                </button>
+                <button type="button" @onclick="() => isCreateOpen = false"
+                        class="flex-1 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 px-4 py-2.5 text-xs font-bold transition-all">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+
+<!-- Gate QR Scanner Camera Modal -->
+@if (isGateScanOpen)
+{
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" @onclick="CloseScanModal">
+        <div class="relative w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden p-6" @onclick:stopPropagation>
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+                <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+                    <span class="relative flex h-2 w-2">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                    </span>
+                    Gate Entry Safety Clearance Scanner
+                </h3>
+                <button @onclick="CloseScanModal" class="text-slate-400 hover:text-slate-600">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(cameraError))
+            {
+                <div class="rounded-xl bg-red-50 border border-red-200 text-red-600 text-xs p-4 mb-4 font-semibold text-center leading-relaxed">
+                    @cameraError
+                </div>
+            }
+
+            <div class="relative bg-slate-900 rounded-xl overflow-hidden aspect-video flex items-center justify-center">
+                <!-- Video stream element -->
+                <video id="gate-scan-video" class="absolute w-full h-full object-cover" style="transform: scaleX(1);"></video>
+                <!-- Canvas used by jsQR behind the scenes -->
+                <canvas id="gate-scan-canvas" class="hidden"></canvas>
+
+                <!-- Scanner overlay elements -->
+                <div class="absolute inset-0 border-[30px] border-black/40 flex items-center justify-center pointer-events-none">
+                    <div class="w-40 h-40 border-2 border-dashed border-orange-500 animate-pulse relative">
+                        <div class="absolute -top-1 -left-1 w-4 h-4 border-t-4 border-l-4 border-orange-500"></div>
+                        <div class="absolute -top-1 -right-1 w-4 h-4 border-t-4 border-r-4 border-orange-500"></div>
+                        <div class="absolute -bottom-1 -left-1 w-4 h-4 border-b-4 border-l-4 border-orange-500"></div>
+                        <div class="absolute -bottom-1 -right-1 w-4 h-4 border-b-4 border-r-4 border-orange-500"></div>
+                    </div>
+                </div>
+                
+                @if (isScanning)
+                {
+                    <span class="absolute bottom-4 rounded bg-slate-950/80 px-3 py-1.5 text-[10px] text-white font-bold tracking-widest uppercase">
+                        Feed Live — Center QR Code
+                    </span>
+                }
+            </div>
+
+            <div class="mt-5 text-center text-xs text-slate-500 font-semibold leading-relaxed">
+                Aim the camera at the vehicle's gate pass QR code printed or displayed on screen.
+            </div>
+
+            <button type="button" @onclick="CloseScanModal" class="w-full mt-6 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 py-2.5 text-xs font-bold transition-all">
+                Cancel / Turn Off Camera
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    private UserDto? currentUser;
+    private List<VehicleDto> vehicles = new();
+    private List<DepartmentDto> departments = new();
+    private bool loading = true;
+    
+    private string search = string.Empty;
+    private string filterDept = string.Empty;
+    private string filterStatus = string.Empty;
+
+    private VehicleDto? selectedVehicle;
+    private VehicleDto? qrModalVehicle;
+    private bool isQrOpen = false;
+
+    // Create Form States
+    private bool isCreateOpen = false;
+    private bool isSubmitting = false;
+    private CreateVehicleDto newVehicle = new() { VehicleType = "Petroleum Tanker" };
+    private IBrowserFile? rcFile;
+    private string uploadError = string.Empty;
+
+    // Compliance doc types (8 types)
+    private static readonly string[] complianceDocTypes = { "ROAD_PERMIT", "AGE_DETERMINATION", "PUC", "FITNESS", "EXPLOSIVE", "GREEN_CARD", "INSURANCE", "CALIBRATION" };
+
+    // Per-compliance doc state: type -> (File, IssueDate, ExpiryDate, LicNo)
+    private Dictionary<string, (IBrowserFile? File, string IssueDate, string ExpiryDate, string LicNo)> complianceDocs = new();
+
+    // Types currently being date-extracted
+    private HashSet<string> extractingDate = new();
+
+    private int uploadedCount => (rcFile != null ? 1 : 0) + complianceDocs.Count(d => d.Value.File != null);
+
+    // Scan States
+    private bool isGateScanOpen = false;
+    private string cameraError = string.Empty;
+    private bool isScanning = false;
+    private DotNetObjectReference<Vehicles>? dotNetHelper;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        if (authState.User.Identity?.IsAuthenticated == true)
+        {
+            currentUser = await Api.GetMeAsync();
+            if (currentUser != null && currentUser.Role == "DEPT_ADMIN")
+            {
+                newVehicle.DepartmentId = currentUser.DepartmentId;
+            }
+            
+            departments = await Api.GetDepartmentsAsync();
+            await FetchVehicles();
+        }
+    }
+
+    private async Task FetchVehicles()
+    {
+        loading = true;
+        StateHasChanged();
+        try
+        {
+            var query = new Dictionary<string, string>();
+            if (!string.IsNullOrEmpty(search)) query["search"] = search;
+            if (!string.IsNullOrEmpty(filterDept)) query["departmentId"] = filterDept;
+            if (!string.IsNullOrEmpty(filterStatus)) query["status"] = filterStatus;
+
+            vehicles = await Api.GetVehiclesAsync(query);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error fetching vehicles: {ex.Message}");
+        }
+        finally
+        {
+            loading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task ViewVehicle(int id)
+    {
+        try
+        {
+            selectedVehicle = await Api.GetVehicleAsync(id);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error getting vehicle detail: {ex.Message}");
+        }
+    }
+
+    private void HandleRenewTrigger(ComplianceRecordDto record)
+    {
+        selectedVehicle = null;
+        Navigation.NavigateTo($"/expiry-management?renewId={record.Id}");
+    }
+
+    private void OpenQrModal(VehicleDto vehicle)
+    {
+        qrModalVehicle = vehicle;
+        isQrOpen = true;
+    }
+
+    private void OpenCreateModal()
+    {
+        newVehicle = new()
+        {
+            VehicleType = "Petroleum Tanker",
+            DepartmentId = currentUser?.Role == "DEPT_ADMIN" ? currentUser.DepartmentId : null
+        };
+        rcFile = null;
+        complianceDocs = new();
+        extractingDate = new();
+        uploadError = string.Empty;
+        isSubmitting = false;
+        isCreateOpen = true;
+    }
+
+    private void HandleComplianceFile(InputFileChangeEventArgs e, string type)
+    {
+        var file = e.File;
+        if (type == "RC")
+        {
+            rcFile = file;
+        }
+        else
+        {
+            // Preserve LicNo but reset IssueDate and ExpiryDate when file is replaced
+            var existing = complianceDocs.ContainsKey(type) ? complianceDocs[type] : (null, "", "", "");
+            complianceDocs[type] = (file, "", "", existing.LicNo);
+        }
+        uploadError = string.Empty;
+        StateHasChanged();
+    }
+
+    private void SetLicNo(string type, string value)
+    {
+        var existing = complianceDocs.ContainsKey(type) ? complianceDocs[type] : (null, "", "", "");
+        complianceDocs[type] = (existing.File, existing.IssueDate, existing.ExpiryDate, value);
+    }
+
+    private void SetIssueDate(string type, string value)
+    {
+        var existing = complianceDocs.ContainsKey(type) ? complianceDocs[type] : (null, "", "", "");
+        complianceDocs[type] = (existing.File, value, existing.ExpiryDate, existing.LicNo);
+        StateHasChanged();
+    }
+
+    private void SetExpiryDate(string type, string value)
+    {
+        var existing = complianceDocs.ContainsKey(type) ? complianceDocs[type] : (null, "", "", "");
+        complianceDocs[type] = (existing.File, existing.IssueDate, value, existing.LicNo);
+        StateHasChanged();
+    }
+
+    private async Task AutoExtractDate(string type)
+    {
+        if (!complianceDocs.ContainsKey(type) || complianceDocs[type].File == null) return;
+        extractingDate.Add(type);
+        StateHasChanged();
+        try
+        {
+            var f = complianceDocs[type].File!;
+            using var stream = f.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+            var (found, date, _) = await Api.ExtractDateFromDocumentAsync(stream, f.Name, f.ContentType);
+            if (found && !string.IsNullOrEmpty(date))
+            {
+                if (DateTime.TryParse(date, out var dt))
+                    date = dt.ToString("yyyy-MM-dd");
+                SetExpiryDate(type, date);
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("alert", "Could not auto-extract expiry date from this document. Please enter it manually.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Date extraction failed: {ex.Message}");
+        }
+        finally
+        {
+            extractingDate.Remove(type);
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleCreateVehicle()
+    {
+        uploadError = string.Empty;
+
+        // Enforce RC
+        if (rcFile == null)
+        {
+            uploadError = "Registration Certificate (RC Copy) is required.";
+            return;
+        }
+
+        // Enforce all 8 compliance docs, license numbers, issue dates, and expiry dates
+        foreach (var type in complianceDocTypes)
+        {
+            var hasFile = complianceDocs.ContainsKey(type) && complianceDocs[type].File != null;
+            if (!hasFile)
+            {
+                uploadError = $"Please upload the document for {type.Replace("_", " ")}.";
+                return;
+            }
+
+            var entry = complianceDocs[type];
+            if (string.IsNullOrEmpty(entry.LicNo))
+            {
+                uploadError = $"Please enter the License/Cert No. for {type.Replace("_", " ")}.";
+                return;
+            }
+
+            if (string.IsNullOrEmpty(entry.IssueDate))
+            {
+                uploadError = $"Please enter the Issue Date for {type.Replace("_", " ")}.";
+                return;
+            }
+
+            if (string.IsNullOrEmpty(entry.ExpiryDate))
+            {
+                uploadError = $"Please enter the Expiry Date for {type.Replace("_", " ")}.";
+                return;
+            }
+
+            if (DateTime.TryParse(entry.IssueDate, out var issueDate) && DateTime.TryParse(entry.ExpiryDate, out var expiryDate))
+            {
+                if (expiryDate < issueDate)
+                {
+                    uploadError = $"Expiry Date must be after Issue Date for {type.Replace("_", " ")}.";
+                    return;
+                }
+            }
+        }
+
+        isSubmitting = true;
+        StateHasChanged();
+
+        try
+        {
+            if (currentUser?.Role == "DEPT_ADMIN")
+                newVehicle.DepartmentId = currentUser.DepartmentId;
+
+            using var rcStream = rcFile.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+            var docStreams = new Dictionary<string, (Stream Stream, string FileName, string ContentType, string IssueDate, string ExpiryDate, string LicNo)>();
+            var openedStreams = new List<Stream>();
+
+            foreach (var type in complianceDocTypes)
+            {
+                var entry = complianceDocs[type];
+                var s = entry.File!.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+                openedStreams.Add(s);
+                docStreams[type] = (s, entry.File.Name, entry.File.ContentType, entry.IssueDate, entry.ExpiryDate, entry.LicNo);
+            }
+
+            try
+            {
+                await Api.CreateVehicleAsync(newVehicle, rcStream, rcFile.Name, rcFile.ContentType, docStreams);
+            }
+            finally
+            {
+                foreach (var s in openedStreams) s.Dispose();
+            }
+
+            isCreateOpen = false;
+            await FetchVehicles();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            uploadError = ex.Message;
+        }
+        finally
+        {
+            isSubmitting = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteVehicle(int id)
+    {
+        var confirm = await JS.InvokeAsync<bool>("confirm", "Are you sure you want to decommission this vehicle? This deletes all associated compliance history.");
+        if (!confirm) return;
+
+        try
+        {
+            await Api.DeleteVehicleAsync(id);
+            await FetchVehicles();
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", ex.Message);
+        }
+    }
+
+    // Gate QR scanning WebRTC triggers
+    private async Task OpenScanModal()
+    {
+        isGateScanOpen = true;
+        cameraError = string.Empty;
+        isScanning = true;
+        StateHasChanged();
+
+        await Task.Delay(200);
+
+        dotNetHelper = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("qrScanner.start", "gate-scan-video", "gate-scan-canvas", dotNetHelper);
+    }
+
+    private async Task CloseScanModal()
+    {
+        isGateScanOpen = false;
+        isScanning = false;
+        await JS.InvokeVoidAsync("qrScanner.stop");
+        if (dotNetHelper != null)
+        {
+            dotNetHelper.Dispose();
+            dotNetHelper = null;
+        }
+    }
+
+    [JSInvokable]
+    public void OnCameraError(string errorMessage)
+    {
+        cameraError = errorMessage;
+        isScanning = false;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task OnQrCodeScanned(int vehicleId)
+    {
+        isGateScanOpen = false;
+        isScanning = false;
+        if (dotNetHelper != null)
+        {
+            dotNetHelper.Dispose();
+            dotNetHelper = null;
+        }
+
+        StateHasChanged();
+        await ViewVehicle(vehicleId);
+    }
+
+    public void Dispose()
+    {
+        if (dotNetHelper != null)
+        {
+            dotNetHelper.Dispose();
+        }
+    }
+
+    // CSS Helper Methods
+    private string GetHeaderBg(string status)
+    {
+        return status switch
+        {
+            "FULLY_COMPLIANT" => "bg-[#0054A6]",
+            "WARNING" => "bg-amber-500",
+            "MEDIUM_CRITICAL" => "bg-orange-600 animate-pulse",
+            "HIGH_CRITICAL" => "bg-red-600 animate-pulse",
+            "EXPIRED" => "bg-red-700 font-bold",
+            _ => "bg-slate-700"
+        };
+    }
+
+    private string GetStatusLabel(string status)
+    {
+        return status switch
+        {
+            "FULLY_COMPLIANT" => "VALID",
+            "WARNING" => "EXPIRING SOON",
+            "MEDIUM_CRITICAL" => "CRITICAL",
+            "HIGH_CRITICAL" => "HIGH CRITICAL",
+            "EXPIRED" => "EXPIRED",
+            _ => status
+        };
+    }
+
+    private string GetBadgeClass(string status)
+    {
+        return status switch
+        {
+            "ACTIVE" => "bg-emerald-50 text-emerald-700 border-emerald-200",
+            "WARNING" => "bg-amber-50 text-amber-700 border-amber-200",
+            "CRITICAL" => "bg-orange-50 text-orange-700 border-orange-200",
+            "EXPIRED" => "bg-red-50 text-red-700 border-red-200",
+            _ => "bg-slate-50 text-slate-700 border-slate-200"
+        };
+    }
+
+    private string GetDotColor(string status)
+    {
+        return status switch
+        {
+            "ACTIVE" => "bg-emerald-500",
+            "WARNING" => "bg-amber-500",
+            "CRITICAL" => "bg-orange-500",
+            "EXPIRED" => "bg-red-500",
+            _ => "bg-slate-400"
+        };
+    }
+}

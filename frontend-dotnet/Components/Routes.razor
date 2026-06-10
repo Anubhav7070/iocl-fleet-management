@@ -1,0 +1,41 @@
+@using Microsoft.AspNetCore.Components.Authorization
+<CascadingAuthenticationState>
+    <Router AppAssembly="typeof(Program).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)">
+                <NotAuthorized>
+                    @if (context.User.Identity?.IsAuthenticated != true)
+                    {
+                        <RedirectToLogin />
+                    }
+                    else
+                    {
+                        <div class="flex h-[80vh] flex-col items-center justify-center text-center p-6 bg-slate-50">
+                            <svg class="mx-auto h-12 w-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <h3 class="mt-4 text-sm font-bold text-slate-800 uppercase tracking-widest">Access Restrained</h3>
+                            <p class="mt-2 text-xs text-slate-500 max-w-sm">You do not have permissions to view this terminal node.</p>
+                        </div>
+                    }
+                </NotAuthorized>
+                <Authorizing>
+                    <div class="flex h-screen items-center justify-center">
+                        <div class="h-10 w-10 animate-spin rounded-full border-4 border-orange-500 border-t-transparent"></div>
+                    </div>
+                </Authorizing>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <LayoutView Layout="typeof(MainLayout)">
+                <div class="flex h-[60vh] flex-col items-center justify-center">
+                    <h1 class="text-6xl font-black text-slate-300">404</h1>
+                    <p class="text-sm text-slate-500 mt-2">Route not found in refinery compliance network.</p>
+                    <a href="/" class="mt-4 rounded bg-orange-500 px-4 py-2 text-sm font-bold text-white hover:bg-orange-600">Return to Dashboard</a>
+                </div>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>
+

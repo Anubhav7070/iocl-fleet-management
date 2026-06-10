@@ -1,0 +1,262 @@
+@page "/verify/vehicle/{id:int}"
+@page "/verify/{id:int}"
+@layout LoginLayout
+@inject IConfiguration Config
+@inject HttpClient Http
+
+<div class="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
+    @if (loading)
+    {
+        <div class="flex flex-col items-center justify-center text-white p-4">
+            <div class="h-10 w-10 animate-spin rounded-full border-4 border-orange-500 border-t-transparent"></div>
+            <p class="mt-4 text-xs font-semibold uppercase tracking-widest text-slate-400">Querying Gate Clearance Database...</p>
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(error) || vehicle == null)
+    {
+        <div class="flex flex-col items-center justify-center text-white p-6 text-center">
+            <svg class="h-14 w-14 text-red-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <h3 class="text-lg font-bold uppercase tracking-wider text-red-500">Security Clearance Error</h3>
+            <p class="mt-2 text-xs text-slate-400 max-w-sm">@(!string.IsNullOrEmpty(error) ? error : "Invalid QR code signature or record deleted.")</p>
+            <span class="mt-8 text-[9px] text-slate-600 font-bold uppercase tracking-widest">IOCL Panipat Gate Safety Operations</span>
+        </div>
+    }
+    else
+    {
+        var isCleared = vehicle.OverallStatus == "FULLY_COMPLIANT";
+
+        <!-- Saffron/Blue Header -->
+        <div class="w-full max-w-md flex items-center justify-between border-b border-slate-800 bg-slate-900 p-4 rounded-t-xl">
+            <div class="flex items-center gap-3">
+                <div class="bg-white rounded-lg p-1">
+                    <img src="/iocl-logo.gif" alt="IOCL Logo" class="h-10 w-auto" style="object-fit: contain; mix-blend-mode: multiply;" />
+                </div>
+                <div>
+                    <h1 class="text-xs font-bold text-white uppercase tracking-wider">IndianOil Corporation</h1>
+                    <p class="text-[9px] text-orange-500 font-bold uppercase tracking-widest">Panipat Refinery Gate-3</p>
+                </div>
+            </div>
+            <span class="flex items-center gap-1 text-[8.5px] font-bold text-emerald-500 bg-emerald-950/20 px-2.5 py-0.5 rounded border border-emerald-900/30 uppercase tracking-widest">
+                <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.952 11.952 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                <span>Verified ID</span>
+            </span>
+        </div>
+
+        <!-- Main Verification Body -->
+        <div class="w-full max-w-md bg-slate-900 border-x border-b border-slate-800 p-5 rounded-b-xl space-y-6 text-slate-200">
+
+            <!-- Dynamic Gate Clearance Badge -->
+            @if (isCleared)
+            {
+                <div class="rounded-lg border border-emerald-800/40 bg-emerald-950/20 p-5 text-center shadow-lg shadow-emerald-900/5">
+                    <svg class="h-12 w-12 text-emerald-500 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.952 11.952 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                    <h2 class="text-sm font-extrabold text-emerald-400 tracking-widest uppercase">CLEARANCE GRANTED</h2>
+                    <p class="text-[10px] text-emerald-600 font-semibold mt-1">VEHICLE OK TO ENTER REFINERY TERMINAL</p>
+                </div>
+            }
+            else
+            {
+                <div class="rounded-lg border border-red-800/40 bg-red-950/20 p-5 text-center shadow-lg shadow-red-900/5">
+                    <svg class="h-12 w-12 text-red-500 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                    <h2 class="text-sm font-extrabold text-red-400 tracking-widest uppercase">ENTRY DENIED</h2>
+                    <p class="text-[10px] text-red-500 font-semibold mt-1">EXPIRED OR MISSING COMPLIANCE CERTIFICATES</p>
+                </div>
+            }
+
+            <!-- Vehicle metadata -->
+            <div class="rounded-lg bg-slate-950/50 border border-slate-800/60 p-4 space-y-2 text-xs">
+                <div class="flex justify-between border-b border-slate-800 pb-1.5">
+                    <span class="text-slate-500 font-bold uppercase tracking-wider text-[9px]">Registration No</span>
+                    <span class="font-bold text-white font-mono text-sm">@vehicle.VehicleNumber</span>
+                </div>
+                <div class="flex justify-between border-b border-slate-800 py-1.5">
+                    <span class="text-slate-500 font-bold uppercase tracking-wider text-[9px]">Vehicle Category</span>
+                    <span class="font-semibold text-slate-300">@vehicle.VehicleType</span>
+                </div>
+                <div class="flex justify-between border-b border-slate-800 py-1.5">
+                    <span class="text-slate-500 font-bold uppercase tracking-wider text-[9px]">Department</span>
+                    <span class="font-semibold text-slate-300">@(vehicle.DepartmentName ?? "N/A")</span>
+                </div>
+                <div class="flex justify-between border-b border-slate-800 py-1.5">
+                    <span class="text-slate-500 font-bold uppercase tracking-wider text-[9px]">Driver Name</span>
+                    <span class="font-semibold text-slate-300">@(string.IsNullOrEmpty(vehicle.DriverName) ? "N/A" : vehicle.DriverName)</span>
+                </div>
+                <div class="flex justify-between pt-1.5">
+                    <span class="text-slate-500 font-bold uppercase tracking-wider text-[9px]">Vendor / Contractor</span>
+                    <span class="font-semibold text-slate-300">@(string.IsNullOrEmpty(vehicle.VendorName) ? "N/A" : vehicle.VendorName)</span>
+                </div>
+            </div>
+
+            <!-- Compliance Checklist -->
+            <div class="space-y-3">
+                <h3 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Refinery Safety Checklist</h3>
+                <div class="space-y-2">
+                    @foreach (var record in vehicle.ComplianceRecords)
+                    {
+                        <div class="flex items-center justify-between rounded bg-slate-950/30 border border-slate-800/50 p-3">
+                            <div class="flex items-center gap-2.5">
+                                <span class="h-2.5 w-2.5 rounded-full shrink-0 @GetDotColor(record.Status)"></span>
+                                <div>
+                                    <h4 class="text-[10px] font-bold text-slate-300 uppercase tracking-wide leading-none">
+                                        @record.LicenseType.Replace("_", " ")
+                                    </h4>
+                                    <p class="text-[8.5px] text-slate-500 font-mono mt-1">NO: @(!string.IsNullOrEmpty(record.LicenseNumber) ? record.LicenseNumber : "PENDING")</p>
+                                </div>
+                            </div>
+                            <div class="text-right text-[9px] font-semibold font-mono">
+                                <span class="@GetStatusTextColor(record.Status)">@record.Status.Replace("_", " ")</span>
+                                <p class="text-slate-500 text-[8px]">EXP: @FormatDate(record.ExpiryDate)</p>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- Scan timestamp -->
+            <div class="text-center text-[8px] text-slate-600 font-bold uppercase tracking-widest border-t border-slate-800/60 pt-4">
+                <span>Checked: @DateTime.Now.ToString("dd-MMM-yyyy HH:mm:ss")</span><br />
+                <span class="mt-1 block">PANIPAT REFINERY COMPUTERIZED SECURITY GATEWAY</span>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private VerifyVehicleResult? vehicle;
+    private bool loading = true;
+    private string error = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await FetchVerifyData();
+    }
+
+    private async Task FetchVerifyData()
+    {
+        loading = true;
+        error = string.Empty;
+
+        try
+        {
+            var baseUrl = (Config["Backend:Url"] ?? "http://localhost:5000").TrimEnd('/');
+            var response = await Http.GetAsync($"{baseUrl}/api/vehicles/verify/{Id}");
+
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                error = $"Vehicle ID #{Id} not found in the IOCL Panipat fleet registry. This QR code may be invalid or the record has been removed.";
+                return;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                error = $"Gate clearance check failed (HTTP {(int)response.StatusCode}). Please contact the refinery security office.";
+                return;
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            var doc  = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            if (!root.GetProperty("success").GetBoolean())
+            {
+                error = root.TryGetProperty("message", out var msg)
+                    ? msg.GetString() ?? "Vehicle not found."
+                    : "Vehicle not found.";
+                return;
+            }
+
+            var data = root.GetProperty("data");
+
+            vehicle = new VerifyVehicleResult
+            {
+                Id            = data.GetProperty("id").GetInt32(),
+                VehicleNumber = data.GetProperty("vehicleNumber").GetString() ?? string.Empty,
+                VehicleType   = data.GetProperty("vehicleType").GetString() ?? string.Empty,
+                DriverName    = data.TryGetProperty("driverName", out var dn)  ? dn.GetString()  ?? string.Empty : string.Empty,
+                VendorName    = data.TryGetProperty("vendorName", out var vn)  ? vn.GetString()  ?? string.Empty : string.Empty,
+                OverallStatus = data.GetProperty("overallStatus").GetString() ?? string.Empty,
+                DepartmentName = data.TryGetProperty("department", out var dept) && dept.ValueKind != System.Text.Json.JsonValueKind.Null
+                    ? dept.TryGetProperty("name", out var dname) ? dname.GetString() : null
+                    : null
+            };
+
+            if (data.TryGetProperty("complianceRecords", out var recList))
+            {
+                vehicle.ComplianceRecords = new List<VerifyComplianceRecord>();
+                foreach (var el in recList.EnumerateArray())
+                {
+                    vehicle.ComplianceRecords.Add(new VerifyComplianceRecord
+                    {
+                        Id            = el.GetProperty("id").GetInt32(),
+                        LicenseType   = el.GetProperty("licenseType").GetString()   ?? string.Empty,
+                        LicenseNumber = el.TryGetProperty("licenseNumber", out var ln) ? ln.GetString() ?? string.Empty : string.Empty,
+                        ExpiryDate    = el.TryGetProperty("expiryDate",    out var ed) ? ed.GetString() ?? string.Empty : string.Empty,
+                        Status        = el.GetProperty("status").GetString()         ?? string.Empty
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            error = $"Verification system error: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private string FormatDate(string? d)
+    {
+        if (string.IsNullOrEmpty(d) || d == "PENDING") return "PENDING";
+        return DateTime.TryParse(d, out var dt) ? dt.ToString("dd-MMM-yyyy") : d;
+    }
+
+    private string GetDotColor(string status) => status switch
+    {
+        "ACTIVE"          => "bg-emerald-500",
+        "WARNING"         => "bg-yellow-500",
+        "MEDIUM_CRITICAL" => "bg-orange-400",
+        "HIGH_CRITICAL"   => "bg-orange-600",
+        "EXPIRED"         => "bg-red-500",
+        _                 => "bg-slate-500"
+    };
+
+    private string GetStatusTextColor(string status) => status switch
+    {
+        "ACTIVE"          => "text-emerald-400",
+        "WARNING"         => "text-yellow-400",
+        "MEDIUM_CRITICAL" => "text-orange-400",
+        "HIGH_CRITICAL"   => "text-orange-500",
+        "EXPIRED"         => "text-red-400",
+        _                 => "text-slate-400"
+    };
+
+    // ── Local models (no auth dependency) ─────────────────────────────
+
+    private class VerifyVehicleResult
+    {
+        public int Id { get; set; }
+        public string VehicleNumber  { get; set; } = string.Empty;
+        public string VehicleType    { get; set; } = string.Empty;
+        public string DriverName     { get; set; } = string.Empty;
+        public string VendorName     { get; set; } = string.Empty;
+        public string OverallStatus  { get; set; } = string.Empty;
+        public string? DepartmentName { get; set; }
+        public List<VerifyComplianceRecord> ComplianceRecords { get; set; } = new();
+    }
+
+    private class VerifyComplianceRecord
+    {
+        public int    Id            { get; set; }
+        public string LicenseType   { get; set; } = string.Empty;
+        public string LicenseNumber { get; set; } = string.Empty;
+        public string ExpiryDate    { get; set; } = string.Empty;
+        public string Status        { get; set; } = string.Empty;
+    }
+}

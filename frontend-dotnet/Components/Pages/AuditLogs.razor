@@ -1,0 +1,236 @@
+@page "/audit-logs"
+@attribute [Authorize(Roles = "SUPER_ADMIN,DEPT_ADMIN")]
+@inject ApiService Api
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+
+<div class="space-y-6 page-enter font-sans">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-xl bg-slate-900 border border-slate-800 text-white p-6 shadow-md shadow-slate-900/10">
+        <div>
+            <h2 class="text-xl font-bold tracking-wide uppercase">Refinery Security Audit Trail</h2>
+            <p class="text-xs text-slate-400 mt-1">
+                Real-time log of administrative database mutations and security clearances.
+            </p>
+        </div>
+        <button @onclick="FetchLogs" class="flex items-center gap-1.5 rounded bg-blue-600 hover:bg-blue-700 px-4 py-2 text-xs font-bold text-white shadow transition-all duration-200">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8.89M9 11l3 3m0 0l3-3m-3 3V2" /></svg>
+            <span>Refresh</span>
+        </button>
+    </div>
+
+    <!-- Filters Section -->
+    <div class="flex flex-col sm:flex-row gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div class="relative flex-1">
+            <span class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            </span>
+            <input type="text" @bind="search" @bind:event="oninput" @bind:after="FetchLogs" placeholder="Search by action, operator name, or description..." class="w-full rounded border border-slate-200 bg-slate-50 pl-9 pr-4 py-2 text-xs font-semibold text-slate-600 outline-none focus:border-blue-500 focus:bg-white transition-all" />
+        </div>
+
+        @if (currentUser?.Role == "SUPER_ADMIN")
+        {
+            <select @bind="filterDept" @bind:after="FetchLogs" class="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 outline-none focus:border-blue-500 transition-all">
+                <option value="">All Divisions</option>
+                @foreach (var d in departments)
+                {
+                    <option value="@d.Id">@d.Name</option>
+                }
+            </select>
+        }
+    </div>
+
+    <!-- Audit Log Table -->
+    @if (loading)
+    {
+        <div class="flex h-48 items-center justify-center">
+            <div class="h-8 w-8 animate-spin rounded-full border-4 border-iocl-orange border-t-transparent"></div>
+        </div>
+    }
+    else if (logs.Count == 0)
+    {
+        <div class="rounded-xl border border-dashed border-slate-300 bg-white py-16 text-center text-slate-400">
+            <svg class="h-12 w-12 mx-auto mb-3 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.952 11.952 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+            <p class="text-sm font-bold text-slate-500">No audit logs matched search criteria.</p>
+        </div>
+    }
+    else
+    {
+        <div class="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs border-collapse">
+                    <thead>
+                        <tr class="border-b border-slate-200 bg-slate-50 text-slate-500 font-bold uppercase tracking-wider">
+                            <th class="p-4">Action</th>
+                            <th class="p-4">Description</th>
+                            <th class="p-4">Authorized Operator</th>
+                            <th class="p-4">Network Context</th>
+                            <th class="p-4">Data Payload</th>
+                            <th class="p-4">Timestamp</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var log in logs)
+                        {
+                            <tr class="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                                <td class="p-4">
+                                    <span class="inline-flex rounded bg-slate-900 border border-slate-800 text-white font-mono font-bold text-[8.5px] px-2 py-0.5 uppercase tracking-wider">
+                                        @log.Action.Replace("_", " ")
+                                    </span>
+                                </td>
+                                <td class="p-4 font-semibold text-slate-700 leading-relaxed max-w-sm">
+                                    @log.Description
+                                </td>
+                                <td class="p-4">
+                                    <div class="flex items-center gap-1.5 font-bold text-slate-700">
+                                        <svg class="h-3.5 w-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                                        <span>@log.Username</span>
+                                    </div>
+                                </td>
+                                <td class="p-4 font-mono font-bold text-slate-500">
+                                    <div class="flex items-center gap-1.5">
+                                        <svg class="h-3.5 w-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg>
+                                        <span>@(!string.IsNullOrEmpty(log.IpAddress) ? log.IpAddress : "127.0.0.1")</span>
+                                    </div>
+                                </td>
+                                <td class="p-4">
+                                    @if (!string.IsNullOrEmpty(log.OldValue) || !string.IsNullOrEmpty(log.NewValue))
+                                    {
+                                        <button @onclick="() => InspectPayload(log)" class="flex items-center gap-1 text-[9px] font-bold text-blue-600 hover:text-blue-700 uppercase tracking-widest transition-all">
+                                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                            <span>Inspect</span>
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">No Payload</span>
+                                    }
+                                </td>
+                                <td class="p-4 font-mono text-slate-500 font-semibold whitespace-nowrap">
+                                    @FormatDateTime(log.CreatedAt)
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+<!-- Payload Inspection Modal -->
+@if (selectedJson != null)
+{
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" @onclick="() => selectedJson = null">
+        <div class="relative w-full max-w-2xl rounded-xl border border-slate-200 bg-white p-6 shadow-2xl flex flex-col max-h-[85vh]" @onclick:stopPropagation>
+            <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3">
+                Inspect Data Payload: @selectedJson.Action
+            </h3>
+            
+            <div class="flex-1 overflow-y-auto space-y-4 my-4 pr-1">
+                @if (!string.IsNullOrEmpty(selectedJson.OldStr))
+                {
+                    <div>
+                        <h4 class="text-[10px] font-bold text-red-500 uppercase tracking-widest mb-1.5">Previous State Data</h4>
+                        <pre class="rounded bg-red-50/50 border border-red-100 p-4 text-[10px] font-mono text-red-800 overflow-x-auto">@PrettifyJson(selectedJson.OldStr)</pre>
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(selectedJson.NewStr))
+                {
+                    <div>
+                        <h4 class="text-[10px] font-bold text-emerald-500 uppercase tracking-widest mb-1.5">Mutated State Data</h4>
+                        <pre class="rounded bg-emerald-50/50 border border-emerald-100 p-4 text-[10px] font-mono text-emerald-800 overflow-x-auto font-semibold">@PrettifyJson(selectedJson.NewStr)</pre>
+                    </div>
+                }
+            </div>
+
+            <div class="flex items-center justify-end pt-3 border-t border-slate-100">
+                <button @onclick="() => selectedJson = null" class="rounded border border-slate-200 bg-slate-50 hover:bg-slate-100 px-5 py-2 text-xs font-bold text-slate-500 transition-all">
+                    Close Inspector
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private UserDto? currentUser;
+    private List<AuditLogDto> logs = new();
+    private List<DepartmentDto> departments = new();
+    private bool loading = true;
+
+    private string search = string.Empty;
+    private string filterDept = string.Empty;
+
+    private SelectedJsonPayload? selectedJson;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        if (authState.User.Identity?.IsAuthenticated == true)
+        {
+            currentUser = await Api.GetMeAsync();
+            departments = await Api.GetDepartmentsAsync();
+            await FetchLogs();
+        }
+    }
+
+    private async Task FetchLogs()
+    {
+        loading = true;
+        StateHasChanged();
+        try
+        {
+            var query = new Dictionary<string, string>();
+            if (!string.IsNullOrEmpty(search)) query["search"] = search;
+            if (!string.IsNullOrEmpty(filterDept)) query["departmentId"] = filterDept;
+
+            logs = await Api.GetAuditLogsAsync(query);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error fetching audit logs: {ex.Message}");
+        }
+        finally
+        {
+            loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void InspectPayload(AuditLogDto log)
+    {
+        selectedJson = new SelectedJsonPayload
+        {
+            Action = log.Action,
+            OldStr = log.OldValue,
+            NewStr = log.NewValue
+        };
+    }
+
+    private string PrettifyJson(string? rawJson)
+    {
+        if (string.IsNullOrWhiteSpace(rawJson)) return string.Empty;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(rawJson);
+            return System.Text.Json.JsonSerializer.Serialize(doc, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        }
+        catch
+        {
+            return rawJson;
+        }
+    }
+
+    private string FormatDateTime(DateTime d)
+    {
+        return d.ToLocalTime().ToString("dd-MMM-yyyy hh:mm:ss tt");
+    }
+
+    private class SelectedJsonPayload
+    {
+        public string Action { get; set; } = string.Empty;
+        public string? OldStr { get; set; }
+        public string? NewStr { get; set; }
+    }
+}

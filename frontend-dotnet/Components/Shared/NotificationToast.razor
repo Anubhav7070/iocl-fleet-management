@@ -1,0 +1,68 @@
+@inject NotificationClientService NotificationClient
+@implements IDisposable
+
+<div class="fixed bottom-6 right-6 z-50 flex flex-col gap-3 max-w-sm w-full pointer-events-none">
+    @foreach (var toast in activeToasts)
+    {
+        <div class="pointer-events-auto flex w-full flex-col gap-1 rounded-lg border border-slate-800 bg-slate-900 p-4 shadow-xl text-white transition-all duration-300 transform scale-100 ease-out page-enter">
+            <div class="flex items-start gap-2.5 justify-between">
+                <div class="flex items-start gap-2">
+                    <span class="mt-0.5 shrink-0">
+                        @if (toast.Type == "EXPIRED")
+                        {
+                            <svg class="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                        }
+                        else
+                        {
+                            <svg class="h-5 w-5 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                        }
+                    </span>
+                    <div>
+                        <h4 class="text-xs font-bold uppercase tracking-wider text-slate-100">@toast.Title</h4>
+                        <p class="text-[11px] text-slate-400 mt-1 leading-snug">@toast.Message</p>
+                    </div>
+                </div>
+                <button @onclick="() => DismissToast(toast)" class="text-slate-500 hover:text-white transition-colors shrink-0">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<NotificationDto> activeToasts = new();
+
+    protected override void OnInitialized()
+    {
+        NotificationClient.OnNotificationReceived += HandleNotification;
+    }
+
+    private async void HandleNotification(NotificationDto notification)
+    {
+        await InvokeAsync(() =>
+        {
+            activeToasts.Add(notification);
+            StateHasChanged();
+            
+            _ = Task.Delay(5000).ContinueWith(_ =>
+            {
+                InvokeAsync(() =>
+                {
+                    activeToasts.Remove(notification);
+                    StateHasChanged();
+                });
+            });
+        });
+    }
+
+    private void DismissToast(NotificationDto toast)
+    {
+        activeToasts.Remove(toast);
+    }
+
+    public void Dispose()
+    {
+        NotificationClient.OnNotificationReceived -= HandleNotification;
+    }
+}

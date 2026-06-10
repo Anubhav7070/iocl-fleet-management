@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IOCL Panipat Refinery — Fleet Compliance Portal</title>
+    <meta name="description" content="IndianOil Panipat Refinery Smart Fleet Compliance & Validity Monitor. Gate access, vehicle permits, RTO compliance tracking." />
+    <base href="/" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+    <!-- Tailwind CSS (CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'iocl-blue': '#001F5B',
+                        'iocl-orange': '#F47920',
+                        'iocl-navy': '#003087'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'Arial', 'system-ui', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+
+    <link rel="stylesheet" href="app.css" />
+    <HeadOutlet @rendermode="InteractiveServer" />
+</head>
+
+<body class="antialiased bg-[#f5f6fa] text-slate-800 font-sans">
+    <Routes @rendermode="InteractiveServer" />
+    
+    <script src="_framework/blazor.web.js"></script>
+    <script src="js/charts.js"></script>
+    <script src="js/qrscanner.js"></script>
+    <script src="js/helpers.js"></script>
+    <script>
+        window.downloadFile = (base64, filename, contentType) => {
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = `data:${contentType};base64,${base64}`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        };
+
+        // Open an HTML report (base64-encoded) in a new browser tab
+        window.ioclHelpers = window.ioclHelpers || {};
+        window.ioclHelpers.openHtmlInTab = (base64, filename) => {
+            const html = atob(base64);
+            const blob = new Blob([html], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const tab = window.open(url, '_blank');
+            if (tab) {
+                tab.focus();
+                // Clean up the object URL after the tab has loaded
+                tab.addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
+            } else {
+                // Popup blocked – fall back to direct download as .html
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                setTimeout(() => URL.revokeObjectURL(url), 5000);
+            }
+        };
+    </script>
+</body>
+
+</html>
+

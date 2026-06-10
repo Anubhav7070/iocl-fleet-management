@@ -1,0 +1,53 @@
+{
+  "Files": [
+    {
+      "Id": "C:\\Users\\Lenovo\\Downloads\\IOCL\\frontend-dotnet\\obj\\Debug\\net8.0\\scopedcss\\projectbundle\\frontend-dotnet.bundle.scp.css",
+      "PackagePath": "staticwebassets\\frontend-dotnet.bundle.scp.css"
+    },
+    {
+      "Id": "C:\\Users\\Lenovo\\Downloads\\IOCL\\frontend-dotnet\\wwwroot\\app.css",
+      "PackagePath": "staticwebassets\\app.css"
+    },
+    {
+      "Id": "C:\\Users\\Lenovo\\Downloads\\IOCL\\frontend-dotnet\\wwwroot\\favicon.svg",
+      "PackagePath": "staticwebassets\\favicon.svg"
+    },
+    {
+      "Id": "C:\\Users\\Lenovo\\Downloads\\IOCL\\frontend-dotnet\\wwwroot\\iocl-logo.gif",
+      "PackagePath": "staticwebassets\\iocl-logo.gif"
+    },
+    {
+      "Id": "C:\\Users\\Lenovo\\Downloads\\IOCL\\frontend-dotnet\\wwwroot\\iocl-logo.jpg",
+      "PackagePath": "staticwebassets\\iocl-logo.jpg"
+    },
+    {
+      "Id": "C:\\Users\\Lenovo\\Downloads\\IOCL\\frontend-dotnet\\wwwroot\\js\\charts.js",
+      "PackagePath": "staticwebassets\\js\\charts.js"
+    },
+    {
+      "Id": "C:\\Users\\Lenovo\\Downloads\\IOCL\\frontend-dotnet\\wwwroot\\js\\helpers.js",
+      "PackagePath": "staticwebassets\\js\\helpers.js"
+    },
+    {
+      "Id": "C:\\Users\\Lenovo\\Downloads\\IOCL\\frontend-dotnet\\wwwroot\\js\\qrscanner.js",
+      "PackagePath": "staticwebassets\\js\\qrscanner.js"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.build.frontend-dotnet.props",
+      "PackagePath": "build\\frontend-dotnet.props"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.buildMultiTargeting.frontend-dotnet.props",
+      "PackagePath": "buildMultiTargeting\\frontend-dotnet.props"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.buildTransitive.frontend-dotnet.props",
+      "PackagePath": "buildTransitive\\frontend-dotnet.props"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.frontend-dotnet.Microsoft.AspNetCore.StaticWebAssets.props",
+      "PackagePath": "build\\Microsoft.AspNetCore.StaticWebAssets.props"
+    }
+  ],
+  "ElementsToRemove": []
+}

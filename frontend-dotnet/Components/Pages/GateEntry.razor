@@ -1,0 +1,393 @@
+@page "/gate-entry"
+@attribute [Authorize(Roles = "GATEMAN,SUPER_ADMIN")]
+@inject ApiService Api
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<div class="space-y-6 page-enter font-sans max-w-7xl mx-auto">
+    <!-- Header banner -->
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 rounded-xl bg-slate-900 border border-slate-800 text-white p-6 shadow-md shadow-slate-900/10">
+        <div class="flex items-center gap-4">
+            <div class="bg-white rounded-lg p-1">
+                <img src="/iocl-logo.gif" alt="IOCL" class="h-10 w-auto" style="object-fit: contain; mix-blend-mode: multiply;" />
+            </div>
+            <div>
+                <h1 class="text-lg font-bold tracking-wide uppercase">Gate Access Terminal</h1>
+                <p class="text-xs text-slate-400 mt-1">
+                    Panipat Refinery computerized gateway validity checker. Scan QR or look up plate number.
+                </p>
+            </div>
+        </div>
+        <div class="text-right">
+            <span class="text-[10px] font-bold text-orange-500 uppercase tracking-widest bg-orange-950/20 border border-orange-900/40 rounded px-2.5 py-1">
+                Security Ops Gate-3
+            </span>
+        </div>
+    </div>
+
+    <!-- Main Grid Workspace -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        
+        <!-- Left: Search & Scanner Panel -->
+        <div class="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-6">
+            <div>
+                <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">Lookup Vehicle Details</h2>
+                
+                <!-- Manual Search bar -->
+                <div class="space-y-2">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">Plate Registration Number</label>
+                    <div class="flex gap-2">
+                        <div class="relative flex-1">
+                            <span class="absolute left-3 top-2.5 text-slate-400">
+                                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                            </span>
+                            <input type="text" @bind="plateSearchQuery" @onkeyup="HandleSearchKeyUp" placeholder="e.g. HR06FS1000" class="w-full rounded border border-slate-200 py-1.5 pl-9 pr-3 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono font-bold uppercase" />
+                        </div>
+                        <button @onclick="SearchVehicleByPlate" disabled="@loading" class="rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-4 py-1.5 text-xs font-bold text-white shadow">
+                            Search
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="border-t border-slate-100 pt-5">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400">Camera QR Scanner</h2>
+                    <button @onclick="ToggleScanner" class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest @(scanning ? "text-red-500 hover:text-red-600" : "text-blue-600 hover:text-blue-700")">
+                        @if (scanning)
+                        {
+                            <span class="flex h-2 w-2 rounded-full bg-red-500 animate-pulse mr-1"></span>
+                            <span>Stop Camera</span>
+                        }
+                        else
+                        {
+                            <span>Start Camera</span>
+                        }
+                    </button>
+                </div>
+
+                <!-- Webcam viewfinder placeholder / stream container -->
+                <div class="relative overflow-hidden rounded-lg bg-slate-950 border border-slate-800 flex flex-col items-center justify-center aspect-video shadow-inner">
+                    @if (scanning)
+                    {
+                        <video id="gate-viewfinder" class="w-full h-full object-cover" autoplay playsinline></video>
+                        <canvas id="gate-canvas" style="display: none;"></canvas>
+                        <div class="absolute inset-4 pointer-events-none border border-dashed border-orange-500/50 rounded flex items-center justify-center">
+                            <div class="h-32 w-32 border-2 border-orange-500 rounded relative">
+                                <div class="absolute inset-x-0 top-1/2 h-0.5 bg-red-500 animate-bounce"></div>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="p-6 text-center text-slate-500">
+                            <svg class="h-10 w-10 mx-auto text-slate-700 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h.01M16 20h4M4 12h4m0 0l-2-2m2 2l-2 2" />
+                            </svg>
+                            <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Camera Scanner Offline</p>
+                            <p class="text-[9px] text-slate-600 mt-1 max-w-[200px] mx-auto">Click "Start Camera" to scan QR code on vehicle passes.</p>
+                        </div>
+                    }
+                </div>
+
+                @if (!string.IsNullOrEmpty(scannerError))
+                {
+                    <div class="mt-3 rounded bg-red-50 border border-red-200 text-red-600 text-[10px] p-2 font-semibold font-mono">
+                        @scannerError
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Right: Verification Details & Action Log Panel -->
+        <div class="lg:col-span-7">
+            @if (loading)
+            {
+                <div class="bg-white border border-slate-200 rounded-xl p-16 text-center shadow-sm">
+                    <div class="h-10 w-10 animate-spin rounded-full border-4 border-orange-500 border-t-transparent mx-auto"></div>
+                    <p class="mt-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">Loading Fleet Compliance Record...</p>
+                </div>
+            }
+            else if (vehicle == null)
+            {
+                <div class="bg-white border border-slate-200 rounded-xl p-16 text-center text-slate-400 shadow-sm border-dashed">
+                    <svg class="h-16 w-16 mx-auto mb-4 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.952 11.952 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                    <h3 class="text-sm font-bold text-slate-500 uppercase tracking-widest">Awaiting Verification Scan</h3>
+                    <p class="text-xs text-slate-400 mt-1 max-w-sm mx-auto">Please input a vehicle registration plate number or trigger the QR scanner camera.</p>
+                </div>
+            }
+            else
+            {
+                var isCleared = vehicle.OverallStatus == "FULLY_COMPLIANT";
+
+                <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex flex-col">
+                    
+                    <!-- Dynamic Gate Clearance Badge -->
+                    @if (isCleared)
+                    {
+                        <div class="bg-emerald-500 text-white px-6 py-5 flex items-center gap-4">
+                            <div class="h-12 w-12 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+                                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.952 11.952 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                            </div>
+                            <div>
+                                <h2 class="text-base font-extrabold tracking-wider uppercase">CLEARANCE GRANTED</h2>
+                                <p class="text-[10px] font-bold uppercase tracking-wider text-emerald-100">Vehicle fully compliant. Clear to enter refinery.</p>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="bg-red-500 text-white px-6 py-5 flex items-center gap-4">
+                            <div class="h-12 w-12 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+                                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                            </div>
+                            <div>
+                                <h2 class="text-base font-extrabold tracking-wider uppercase">ENTRY DENIED</h2>
+                                <p class="text-[10px] font-bold uppercase tracking-wider text-red-100">Critical warning or expired compliance licenses. Do NOT allow access.</p>
+                            </div>
+                        </div>
+                    }
+
+                    <!-- Vehicle details -->
+                    <div class="p-6 border-b border-slate-100 grid grid-cols-2 gap-x-6 gap-y-4">
+                        <div>
+                            <span class="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Registration Number</span>
+                            <div class="text-sm font-black text-slate-800 font-mono tracking-tight mt-0.5">@vehicle.VehicleNumber</div>
+                        </div>
+                        <div>
+                            <span class="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Category</span>
+                            <div class="text-sm font-semibold text-slate-700 mt-0.5">@vehicle.VehicleType</div>
+                        </div>
+                        <div>
+                            <span class="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Driver Name</span>
+                            <div class="text-sm font-semibold text-slate-700 mt-0.5">@(string.IsNullOrEmpty(vehicle.DriverName) ? "N/A" : vehicle.DriverName)</div>
+                        </div>
+                        <div>
+                            <span class="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Vendor / Contractor</span>
+                            <div class="text-sm font-semibold text-slate-700 mt-0.5">@(string.IsNullOrEmpty(vehicle.VendorName) ? "N/A" : vehicle.VendorName)</div>
+                        </div>
+                        <div class="col-span-2">
+                            <span class="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Department Scope</span>
+                            <div class="text-sm font-bold text-slate-850 mt-0.5">@(vehicle.Department?.Name ?? "Global Fleet Division")</div>
+                        </div>
+                    </div>
+
+                    <!-- Checklist list -->
+                    <div class="p-6 border-b border-slate-100 space-y-3">
+                        <h3 class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Compliance licenses checklist</h3>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            @foreach (var rec in vehicle.ComplianceRecords)
+                            {
+                                <div class="flex items-center justify-between border border-slate-200 rounded p-2.5 bg-slate-50/50">
+                                    <div class="flex items-center gap-2">
+                                        <span class="h-2 w-2 rounded-full shrink-0 @GetDotColor(rec.Status)"></span>
+                                        <div>
+                                            <h4 class="text-[10px] font-bold text-slate-800 uppercase tracking-wide">
+                                                @rec.LicenseType.Replace("_", " ")
+                                            </h4>
+                                            <p class="text-[8.5px] text-slate-500 font-mono mt-0.5"># @(!string.IsNullOrEmpty(rec.LicenseNumber) ? rec.LicenseNumber : "PENDING")</p>
+                                        </div>
+                                    </div>
+                                    <div class="text-right text-[8.5px] font-bold font-mono">
+                                        <span class="@GetStatusTextColor(rec.Status)">@rec.Status.Replace("_", " ")</span>
+                                        <p class="text-slate-450 text-[7.5px] mt-0.5">EXP: @FormatDate(rec.ExpiryDate)</p>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <!-- Entry Log Decision Block -->
+                    <div class="p-6 bg-slate-50/50 space-y-4">
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1">Gate Entry Remarks / Notes</label>
+                            <textarea @bind="remarksInput" rows="2" placeholder="Input any gate notes, e.g. driver seal checked, cargo inspection remarks..." class="w-full rounded border border-slate-200 py-1.5 px-3 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"></textarea>
+                        </div>
+
+                        <div class="flex items-center gap-3 justify-end">
+                            <button @onclick="ClearCheckTerminal" class="rounded border border-slate-250 hover:bg-slate-50 px-4 py-2 text-xs font-bold text-slate-500">
+                                Reset Terminal
+                            </button>
+                            <button @onclick="() => SubmitGateDecision(false)" class="rounded bg-red-600 hover:bg-red-700 px-5 py-2 text-xs font-bold text-white shadow shadow-red-600/10">
+                                Deny Premises Access
+                            </button>
+                            <button @onclick="() => SubmitGateDecision(true)" class="rounded bg-emerald-600 hover:bg-emerald-700 px-5 py-2 text-xs font-bold text-white shadow shadow-emerald-600/10">
+                                Allow Entry Clearance
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+            }
+        </div>
+
+    </div>
+</div>
+
+@code {
+    private VehicleDto? vehicle;
+    private string plateSearchQuery = string.Empty;
+    private string remarksInput = string.Empty;
+    private bool loading = false;
+    private bool scanning = false;
+    private string scannerError = string.Empty;
+
+    private DotNetObjectReference<GateEntry>? objRef;
+
+    protected override void OnInitialized()
+    {
+        objRef = DotNetObjectReference.Create(this);
+    }
+
+    private async Task SearchVehicleByPlate()
+    {
+        if (string.IsNullOrWhiteSpace(plateSearchQuery)) return;
+
+        loading = true;
+        vehicle = null;
+        StateHasChanged();
+
+        try
+        {
+            vehicle = await Api.GetVehicleByPlateAsync(plateSearchQuery.Trim());
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Search failed: {ex.Message}");
+        }
+        finally
+        {
+            loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleSearchKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SearchVehicleByPlate();
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnQrCodeScanned(int scannedVehicleId)
+    {
+        scanning = false;
+        loading = true;
+        vehicle = null;
+        StateHasChanged();
+
+        try
+        {
+            vehicle = await Api.GetVehicleAsync(scannedVehicleId);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Failed to load scanned vehicle: {ex.Message}");
+        }
+        finally
+        {
+            loading = false;
+            StateHasChanged();
+        }
+    }
+
+    [JSInvokable]
+    public void OnCameraError(string error)
+    {
+        scanning = false;
+        scannerError = error;
+        StateHasChanged();
+    }
+
+    private async Task ToggleScanner()
+    {
+        scannerError = string.Empty;
+        if (scanning)
+        {
+            scanning = false;
+            await JS.InvokeVoidAsync("qrScanner.stop");
+        }
+        else
+        {
+            scanning = true;
+            StateHasChanged();
+            // Allow some time for video elements to render before starting scanner
+            await Task.Delay(100);
+            await JS.InvokeVoidAsync("qrScanner.start", "gate-viewfinder", "gate-canvas", objRef);
+        }
+    }
+
+    private async Task SubmitGateDecision(bool allowed)
+    {
+        if (vehicle == null) return;
+
+        try
+        {
+            var logDto = new GateEntryLogDto
+            {
+                VehicleId = vehicle.Id,
+                Allowed = allowed,
+                Remarks = remarksInput
+            };
+
+            await Api.LogGateEntryAsync(logDto);
+            await JS.InvokeVoidAsync("alert", $"Gate entry logged: {(allowed ? "ALLOWED" : "DENIED")}");
+            
+            // Reset state
+            ClearCheckTerminal();
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Failed to log entry decision: {ex.Message}");
+        }
+    }
+
+    private void ClearCheckTerminal()
+    {
+        vehicle = null;
+        plateSearchQuery = string.Empty;
+        remarksInput = string.Empty;
+        StateHasChanged();
+    }
+
+    private string FormatDate(string? d)
+    {
+        if (string.IsNullOrEmpty(d) || d == "PENDING") return "PENDING";
+        return DateTime.TryParse(d, out var dt) ? dt.ToString("dd-MMM-yyyy") : d;
+    }
+
+    private string GetDotColor(string status) => status switch
+    {
+        "ACTIVE"          => "bg-emerald-500",
+        "WARNING"         => "bg-yellow-500",
+        "MEDIUM_CRITICAL" => "bg-orange-400",
+        "HIGH_CRITICAL"   => "bg-orange-600",
+        "EXPIRED"         => "bg-red-500",
+        _                 => "bg-slate-500"
+    };
+
+    private string GetStatusTextColor(string status) => status switch
+    {
+        "ACTIVE"          => "text-emerald-500",
+        "WARNING"         => "text-yellow-600",
+        "MEDIUM_CRITICAL" => "text-orange-500",
+        "HIGH_CRITICAL"   => "text-orange-700",
+        "EXPIRED"         => "text-red-500",
+        _                 => "text-slate-500"
+    };
+
+    public void Dispose()
+    {
+        if (scanning)
+        {
+            _ = JS.InvokeVoidAsync("qrScanner.stop");
+        }
+        objRef?.Dispose();
+    }
+}

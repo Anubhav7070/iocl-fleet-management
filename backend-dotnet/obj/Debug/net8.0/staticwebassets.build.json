@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Hash": "fuNVKKUM32NXIKns+cEtBZEG8QfALON24wFY2Nd0g+I=",
+  "Source": "IoclFleetApi",
+  "BasePath": "_content/IoclFleetApi",
+  "Mode": "Default",
+  "ManifestType": "Build",
+  "ReferencedProjectsConfiguration": [],
+  "DiscoveryPatterns": [],
+  "Assets": []
+}

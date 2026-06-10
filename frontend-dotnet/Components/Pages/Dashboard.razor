@@ -1,0 +1,641 @@
+@page "/dashboard"
+@attribute [Authorize]
+@inject ApiService Api
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@inject IConfiguration Config
+
+<div class="space-y-6 page-enter">
+    <!-- Dashboard Title Banner -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-lg bg-slate-900 border border-slate-800 text-white p-6 shadow-md shadow-slate-900/10">
+        <div>
+            <h2 class="text-xl font-bold tracking-wide uppercase">Refinery Operations Terminal</h2>
+            <p class="text-xs text-slate-400 mt-1">
+                Monitoring gate entry clearance and document compliance logs for @(currentUser?.Role == "DEPT_ADMIN" ? $"{currentUser.DepartmentName} Department" : "Panipat Refinery Complex").
+            </p>
+        </div>
+
+        <!-- Export Report Actions -->
+        <div class="flex flex-wrap items-center gap-3">
+            <button @onclick='() => DownloadReport("compliance", "pdf")' disabled="@(downloading == "compliance-pdf")" class="flex items-center gap-1.5 rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-wait px-3.5 py-2 text-xs font-bold text-white shadow transition-all duration-200">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                <span>@(downloading == "compliance-pdf" ? "Exporting..." : "Export PDF Log")</span>
+            </button>
+            <button @onclick='() => DownloadReport("compliance", "excel")' disabled="@(downloading == "compliance-excel")" class="flex items-center gap-1.5 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-wait px-3.5 py-2 text-xs font-bold text-white shadow transition-all duration-200">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                <span>@(downloading == "compliance-excel" ? "Exporting..." : "Export Excel Sheet")</span>
+            </button>
+        </div>
+    </div>
+
+    @if (loading || stats == null)
+    {
+        <div class="flex h-64 items-center justify-center">
+            <div class="h-10 w-10 animate-spin rounded-full border-4 border-iocl-orange border-t-transparent"></div>
+            <span class="ml-3 text-sm font-semibold text-slate-500">Compiling Analytics...</span>
+        </div>
+    }
+    else
+    {
+        <!-- KPI Cards -->
+        <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
+            <div class="rounded-xl border border-slate-200 bg-white p-5 card-hover">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Fleet</span>
+                    <span class="rounded bg-blue-50 p-2 text-blue-600">
+                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10M21 16V10a1 1 0 00-1-1h-7m8 7H3" /></svg>
+                    </span>
+                </div>
+                <p class="text-2xl font-extrabold text-slate-800 mt-2">@stats.Counts.TotalVehicles</p>
+                <p class="text-[10px] text-slate-400 mt-1 font-semibold">Registered Vehicles</p>
+            </div>
+            
+            <div class="rounded-xl border border-slate-200 bg-white p-5 card-hover">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">Compliant</span>
+                    <span class="rounded bg-emerald-50 p-2 text-emerald-600">
+                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    </span>
+                </div>
+                <p class="text-2xl font-extrabold text-emerald-600 mt-2">@stats.Counts.FullyCompliant</p>
+                <p class="text-[10px] text-emerald-500 mt-1 font-bold">@GetPercentage(stats.Counts.FullyCompliant)% of Fleet</p>
+            </div>
+
+            <div class="rounded-xl border border-slate-200 bg-white p-5 card-hover">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">Warning</span>
+                    <span class="rounded bg-yellow-50 p-2 text-yellow-600">
+                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    </span>
+                </div>
+                <p class="text-2xl font-extrabold text-yellow-600 mt-2">@stats.Counts.Warning</p>
+                <p class="text-[10px] text-yellow-500 mt-1 font-bold">Pending Expiry</p>
+            </div>
+
+            <div class="rounded-xl border border-slate-200 bg-white p-5 card-hover">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">Critical</span>
+                    <span class="rounded bg-orange-50 p-2 text-orange-600">
+                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                    </span>
+                </div>
+                <p class="text-2xl font-extrabold text-orange-600 mt-2">@stats.Counts.Critical</p>
+                <p class="text-[10px] text-orange-500 mt-1 font-bold">Action Required</p>
+            </div>
+
+            <div class="rounded-xl border border-slate-200 bg-white p-5 card-hover">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">Expired</span>
+                    <span class="rounded bg-red-50 p-2 text-red-600">
+                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                    </span>
+                </div>
+                <p class="text-2xl font-extrabold text-red-600 mt-2">@stats.Counts.Expired</p>
+                <p class="text-[10px] text-red-500 mt-1 font-bold">Gate Blocked</p>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="rounded-xl border border-slate-200 bg-white p-5 flex flex-col h-80 shadow-sm">
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Fleet Status Breakdown</h3>
+                <div class="relative flex-1 w-full h-full">
+                    <canvas id="statusChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="lg:col-span-2 rounded-xl border border-slate-200 bg-white p-5 flex flex-col h-80 shadow-sm">
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Division Compliance Comparison</h3>
+                <div class="relative flex-1 w-full h-full">
+                    <canvas id="deptChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Alerts & Verification Section -->
+        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <!-- Alerts & Expiries List -->
+            <div class="xl:col-span-2 rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-4">
+                    <div>
+                        <h3 class="text-xs font-bold text-slate-400 uppercase tracking-widest">Compliance Alerts & Expiring Certificates</h3>
+                        <p class="text-xs text-slate-500 mt-0.5">Vehicles with warning or expired status logs</p>
+                    </div>
+                    <!-- Filters -->
+                    <div class="flex items-center gap-2">
+                        @if (currentUser?.Role == "SUPER_ADMIN")
+                        {
+                            <select @bind="alertDeptFilter" @bind:after="FetchAlerts" class="rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-600 outline-none">
+                                <option value="">All Divisions</option>
+                                @foreach (var d in departments)
+                                {
+                                    <option value="@d.Id">@d.Code</option>
+                                }
+                            </select>
+                        }
+                        <select @bind="alertPriorityFilter" @bind:after="FetchAlerts" class="rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-600 outline-none">
+                            <option value="">All Priorities</option>
+                            <option value="HIGH">Expired / High</option>
+                            <option value="MEDIUM">Medium</option>
+                            <option value="LOW">Warning / Low</option>
+                        </select>
+                    </div>
+                </div>
+
+                @if (alertsLoading)
+                {
+                    <div class="flex h-32 items-center justify-center">
+                        <div class="h-6 w-6 animate-spin rounded-full border-2 border-iocl-orange border-t-transparent"></div>
+                    </div>
+                }
+                else if (alerts.Count == 0)
+                {
+                    <div class="py-12 text-center text-xs text-slate-400">No active compliance alerts.</div>
+                }
+                else
+                {
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr class="border-b border-slate-100 text-slate-400 uppercase font-bold tracking-wider">
+                                    <th class="py-3 px-2">Vehicle No</th>
+                                    <th class="py-3 px-2">Division</th>
+                                    <th class="py-3 px-2">Document Slot</th>
+                                    <th class="py-3 px-2">Status</th>
+                                    <th class="py-3 px-2">Expiry Date</th>
+                                    <th class="py-3 px-2 text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var alert in alerts)
+                                {
+                                    <tr class="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                                        <td class="py-3 px-2 font-bold font-mono text-slate-800">@alert.Vehicle?.VehicleNumber</td>
+                                        <td class="py-3 px-2 font-semibold text-slate-500">@alert.Vehicle?.Department?.Code</td>
+                                        <td class="py-3 px-2 font-semibold text-slate-600">@alert.LicenseType.Replace("_", " ")</td>
+                                        <td class="py-3 px-2"><StatusBadge Status="@alert.Status" /></td>
+                                        <td class="py-3 px-2 font-semibold text-slate-600 font-mono">@FmtDate(alert.ExpiryDate)</td>
+                                        <td class="py-3 px-2 text-right">
+                                            <button @onclick="() => ViewVehicle(alert.VehicleId)" class="rounded bg-blue-50 text-blue-600 hover:bg-blue-100 px-2.5 py-1.5 font-bold transition-colors">
+                                                View
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+
+            <!-- Recent Audits & Notifications -->
+            <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm flex flex-col h-full space-y-4">
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-4">Terminal Operations Log</h3>
+                
+                <div class="flex-1 overflow-y-auto space-y-4 max-h-[400px] pr-1">
+                    @foreach (var audit in stats.RecentAudits)
+                    {
+                        <div class="rounded-lg border border-slate-100 bg-slate-50/50 p-3 text-[11px] space-y-1.5">
+                            <div class="flex items-center justify-between">
+                                <span class="font-bold text-blue-600 uppercase tracking-wide">@audit.Action.Replace("_", " ")</span>
+                                <span class="text-[9px] text-slate-400 font-mono">@audit.Timestamp.ToLocalTime().ToString("hh:mm tt")</span>
+                            </div>
+                            <p class="text-slate-600 font-semibold leading-relaxed">@audit.Details</p>
+                            <p class="text-[9px] text-slate-400 font-mono">Operator: <span class="text-slate-500 font-bold">@audit.Username</span></p>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Super Admin Document Verification & Email Dispatch Hub -->
+        @if (currentUser?.Role == "SUPER_ADMIN")
+        {
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Super Admin Document Verification Hub (2/3 width) -->
+                <div class="lg:col-span-2 rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+                    <div>
+                        <h3 class="text-xs font-bold text-slate-400 uppercase tracking-widest">Refinery Document Verification Hub</h3>
+                        <p class="text-xs text-slate-500 mt-0.5">Super Admin clearance terminal for newly uploaded RC and compliance certificates</p>
+                    </div>
+
+                    @if (docsLoading)
+                    {
+                        <div class="flex h-32 items-center justify-center">
+                            <div class="h-6 w-6 animate-spin rounded-full border-2 border-iocl-orange border-t-transparent"></div>
+                        </div>
+                    }
+                    else if (uploadedDocs.Count == 0)
+                    {
+                        <div class="py-12 text-center text-xs text-slate-400">No documents pending verification.</div>
+                    }
+                    else
+                    {
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse text-xs">
+                                <thead>
+                                    <tr class="border-b border-slate-100 text-slate-400 uppercase font-bold tracking-wider">
+                                        <th class="py-3 px-2">Vehicle No</th>
+                                        <th class="py-3 px-2">Division</th>
+                                        <th class="py-3 px-2">Document Category</th>
+                                        <th class="py-3 px-2">Uploaded File</th>
+                                        <th class="py-3 px-2">Cleared Status</th>
+                                        <th class="py-3 px-2 text-right">Verification Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var doc in uploadedDocs)
+                                    {
+                                        <tr class="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                                            <td class="py-3 px-2 font-bold font-mono text-slate-800">@doc.VehicleNumber</td>
+                                            <td class="py-3 px-2 font-semibold text-slate-500">@doc.DepartmentName</td>
+                                            <td class="py-3 px-2 font-semibold text-slate-600">@doc.DocumentType</td>
+                                            <td class="py-3 px-2 font-medium">
+                                                <a href="@($"{apiBaseUrl}{doc.FilePath}")" target="_blank" rel="noopener noreferrer" class="flex items-center gap-1 text-blue-600 hover:underline">
+                                                    <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                                    <span class="max-w-[120px] truncate">@doc.FileName</span>
+                                                </a>
+                                            </td>
+                                            <td class="py-3 px-2">
+                                                <span class="rounded px-2 py-0.5 font-bold uppercase text-[9px] @(doc.IsVerified ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")">
+                                                    @(doc.IsVerified ? "Verified" : "Pending")
+                                                </span>
+                                            </td>
+                                            <td class="py-3 px-2 text-right">
+                                                @if (doc.IsVerified)
+                                                {
+                                                    <button @onclick="() => ToggleVerify(doc)" class="rounded bg-red-50 text-red-600 hover:bg-red-100 px-3 py-1.5 font-bold transition-colors">
+                                                        Revoke
+                                                    </button>
+                                                }
+                                                else
+                                                {
+                                                    <button @onclick="() => ToggleVerify(doc)" class="rounded bg-emerald-50 text-emerald-600 hover:bg-emerald-100 px-3 py-1.5 font-bold transition-colors">
+                                                        Verify
+                                                    </button>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+
+                <!-- Super Admin Email & Alert Dispatcher Control Center (1/3 width) -->
+                <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4 flex flex-col justify-between">
+                    <div>
+                        <h3 class="text-xs font-bold text-slate-400 uppercase tracking-widest">Email & Alert Dispatcher</h3>
+                        <p class="text-xs text-slate-500 mt-0.5">Clearance notifications and daily digests triggered manually for all departments</p>
+                    </div>
+
+                    <div class="flex-1 space-y-4 flex flex-col justify-center my-4">
+                        <div class="space-y-3">
+                            <button @onclick="TriggerDailyDigest" disabled="@(sendingDigest || sendingAlerts)" class="w-full flex items-center justify-center gap-2 rounded bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-60 disabled:cursor-wait py-3 text-xs font-bold text-white shadow transition-all duration-200">
+                                @if (sendingDigest)
+                                {
+                                    <div class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                                    <span>Sending Digest...</span>
+                                }
+                                else
+                                {
+                                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 19v-8.93a2 2 0 01.89-1.664l8-5.333a2 2 0 012.22 0l8 5.333A2 2 0 0121 10.07V19M3 19a2 2 0 002 2h14a2 2 0 002-2M3 19l6.75-4.5M21 19l-6.75-4.5M3 10l6.75 4.5M21 10l-6.75-4.5m0 0l-2.25-1.5a2 2 0 00-2.22 0l-2.25 1.5M12 14.25a8.25 8.25 0 00-8.25-8.25h16.5A8.25 8.25 0 0012 14.25z" />
+                                    </svg>
+                                    <span>Send Daily summary to all departments</span>
+                                }
+                            </button>
+
+                            <button @onclick="TriggerComplianceScan" disabled="@(sendingDigest || sendingAlerts)" class="w-full flex items-center justify-center gap-2 rounded bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 disabled:opacity-60 disabled:cursor-wait py-3 text-xs font-bold text-white shadow transition-all duration-200">
+                                @if (sendingAlerts)
+                                {
+                                    <div class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                                    <span>Scanning & Sending...</span>
+                                }
+                                else
+                                {
+                                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                    </svg>
+                                    <span>Run Alert Scan & Send Emails</span>
+                                }
+                            </button>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(emailStatusMsg))
+                        {
+                            <div class="rounded-lg border p-3 text-xs font-semibold @(emailStatusIsError ? "bg-red-50 border-red-200 text-red-700" : "bg-emerald-50 border-emerald-200 text-emerald-700")">
+                                @emailStatusMsg
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+<!-- Details Modal Overlay -->
+<VehicleDetailModal Vehicle="@selectedVehicle" User="@currentUser" OnClose="() => selectedVehicle = null" OnRenew="HandleRenewTrigger" />
+
+@code {
+    private UserDto? currentUser;
+    private DashboardStatsDto? stats;
+    private List<DepartmentDto> departments = new();
+    private List<ComplianceRecordDto> alerts = new();
+    private List<UploadedDocumentDto> uploadedDocs = new();
+
+    private bool loading = true;
+    private bool alertsLoading = true;
+    private bool docsLoading = true;
+    private string alertDeptFilter = string.Empty;
+    private string alertPriorityFilter = string.Empty;
+    private string downloading = string.Empty;
+    private string apiBaseUrl = string.Empty;
+
+    private VehicleDto? selectedVehicle;
+    private bool shouldInitCharts = false;
+
+    // Email alert dispatcher states
+    private bool sendingDigest = false;
+    private bool sendingAlerts = false;
+    private string emailStatusMsg = string.Empty;
+    private bool emailStatusIsError = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        apiBaseUrl = Config["Backend:Url"] ?? "http://localhost:5000";
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        if (authState.User.Identity?.IsAuthenticated == true)
+        {
+            currentUser = await Api.GetMeAsync();
+            await LoadData();
+        }
+    }
+
+    private async Task LoadData()
+    {
+        loading = true;
+        try
+        {
+            stats = await Api.GetDashboardStatsAsync();
+            departments = await Api.GetDepartmentsAsync();
+            shouldInitCharts = true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading stats: {ex.Message}");
+        }
+        finally
+        {
+            loading = false;
+        }
+
+        await FetchAlerts();
+
+        if (currentUser?.Role == "SUPER_ADMIN")
+        {
+            await FetchUploadedDocs();
+        }
+    }
+
+    private async Task FetchAlerts()
+    {
+        alertsLoading = true;
+        StateHasChanged();
+        try
+        {
+            int? deptId = string.IsNullOrEmpty(alertDeptFilter) ? null : int.Parse(alertDeptFilter);
+            alerts = await Api.GetComplianceAlertsAsync(deptId, alertPriorityFilter);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error fetching alerts: {ex.Message}");
+        }
+        finally
+        {
+            alertsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task FetchUploadedDocs()
+    {
+        docsLoading = true;
+        StateHasChanged();
+        try
+        {
+            uploadedDocs = await Api.GetUploadedDocumentsAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error fetching uploaded docs: {ex.Message}");
+        }
+        finally
+        {
+            docsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private int GetPercentage(int value)
+    {
+        if (stats == null || stats.Counts.TotalVehicles == 0) return 0;
+        return (int)Math.Round((double)value / stats.Counts.TotalVehicles * 100);
+    }
+
+    private string FmtDate(string? d)
+    {
+        if (string.IsNullOrEmpty(d) || d == "PENDING") return "Pending";
+        if (DateTime.TryParse(d, out var dt))
+        {
+            return dt.ToString("dd-MMM-yyyy");
+        }
+        return d;
+    }
+
+    private async Task ViewVehicle(int vehicleId)
+    {
+        try
+        {
+            selectedVehicle = await Api.GetVehicleAsync(vehicleId);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error fetching vehicle detail: {ex.Message}");
+        }
+    }
+
+    private void HandleRenewTrigger(ComplianceRecordDto record)
+    {
+        selectedVehicle = null;
+        Navigation.NavigateTo($"/expiry-management?renewId={record.Id}");
+    }
+
+    private async Task ToggleVerify(UploadedDocumentDto doc)
+    {
+        try
+        {
+            var targetStatus = !doc.IsVerified;
+            if (doc.Type == "VEHICLE_RC")
+            {
+                await Api.VerifyVehicleAsync(doc.RecordId, targetStatus);
+            }
+            else
+            {
+                await Api.VerifyComplianceDocumentAsync(doc.RecordId, targetStatus);
+            }
+
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error toggling verify status: {ex.Message}");
+        }
+    }
+
+    private async Task DownloadReport(string type, string format)
+    {
+        var key = $"{type}-{format}";
+        if (downloading == key) return;
+        downloading = key;
+        StateHasChanged();
+
+        try
+        {
+            HttpResponseMessage response;
+            string filename;
+            string mime;
+
+            if (type == "compliance")
+            {
+                response = await Api.DownloadComplianceReportAsync(format);
+                filename = format == "excel"
+                    ? $"IOCL_Compliance_Report.xlsx"
+                    : $"IOCL_Compliance_Report.pdf";
+                mime = format == "excel"
+                    ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    : "application/pdf";
+            }
+            else
+            {
+                response = await Api.DownloadExpiryReportAsync(format);
+                filename = format == "excel"
+                    ? $"IOCL_Expiry_Report.xlsx"
+                    : $"IOCL_Expiry_Report.pdf";
+                mime = format == "excel"
+                    ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    : "application/pdf";
+            }
+
+            var bytes  = await response.Content.ReadAsByteArrayAsync();
+            var base64 = Convert.ToBase64String(bytes);
+            await JS.InvokeVoidAsync("window.downloadFile", base64, filename, mime);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Report download failed: {ex.Message}");
+        }
+        finally
+        {
+            downloading = string.Empty;
+            StateHasChanged();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (shouldInitCharts)
+        {
+            shouldInitCharts = false;
+            await InitCharts();
+        }
+    }
+
+    private async Task InitCharts()
+    {
+        try
+        {
+            if (stats == null) return;
+
+            // Doughnut Chart: Status Distribution
+            var doughnutData = new[] { stats.Counts.FullyCompliant, stats.Counts.Warning, stats.Counts.Critical, stats.Counts.Expired };
+            var doughnutLabels = new[] { "Compliant", "Warning", "Critical", "Expired" };
+            await JS.InvokeVoidAsync("charts.createDoughnut", "statusChart", doughnutData, doughnutLabels);
+
+            // Bar Chart: Division Compliance Comparison
+            var barLabels = stats.DepartmentComparison.Select(d => d.Code).ToArray();
+            var barData = stats.DepartmentComparison.Select(d => d.ComplianceScore).ToArray();
+            await JS.InvokeVoidAsync("charts.createBar", "deptChart", barData, barLabels);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error initializing charts: {ex.Message}");
+        }
+    }
+
+    private async Task TriggerDailyDigest()
+    {
+        sendingDigest = true;
+        emailStatusMsg = string.Empty;
+        StateHasChanged();
+
+        try
+        {
+            var success = await Api.TriggerDailyDigestAsync();
+            if (success)
+            {
+                emailStatusMsg = "Daily compliance summaries successfully emailed to all department administrators and super admins.";
+                emailStatusIsError = false;
+            }
+            else
+            {
+                emailStatusMsg = "Failed to dispatch daily summaries. Check server logs.";
+                emailStatusIsError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            emailStatusMsg = $"Error: {ex.Message}";
+            emailStatusIsError = true;
+        }
+        finally
+        {
+            sendingDigest = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task TriggerComplianceScan()
+    {
+        sendingAlerts = true;
+        emailStatusMsg = string.Empty;
+        StateHasChanged();
+
+        try
+        {
+            var success = await Api.TriggerComplianceEmailsAsync();
+            if (success)
+            {
+                emailStatusMsg = "Compliance scan completed. Active status checks executed and alert emails sent.";
+                emailStatusIsError = false;
+            }
+            else
+            {
+                emailStatusMsg = "Failed to run compliance scan. Check server logs.";
+                emailStatusIsError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            emailStatusMsg = $"Error: {ex.Message}";
+            emailStatusIsError = true;
+        }
+        finally
+        {
+            sendingAlerts = false;
+            StateHasChanged();
+        }
+    }
+}
