@@ -54,12 +54,12 @@ public static class DbSeeder
         {
             new User { Username = "superadmin", Email = "singhanubhav1562@gmail.com", Password = passwordHash, Role = "SUPER_ADMIN", DepartmentId = null, Status = "ACTIVE" },
             new User { Username = "gateman", Email = "singhanubhav1562@gmail.com", Password = passwordHash, Role = "GATEMAN", DepartmentId = null, Status = "ACTIVE" },
-            new User { Username = "prfsadmin", Email = "singhanubhav1562@gmail.com", Password = passwordHash, Role = "DEPT_ADMIN", DepartmentId = prFS.Id, Status = "ACTIVE" },
-            new User { Username = "propsadmin", Email = "singhanubhav1562@gmail.com", Password = passwordHash, Role = "DEPT_ADMIN", DepartmentId = prOPS.Id, Status = "ACTIVE" },
-            new User { Username = "prchemadmin", Email = "singhanubhav1562@gmail.com", Password = passwordHash, Role = "DEPT_ADMIN", DepartmentId = prCHEM.Id, Status = "ACTIVE" },
-            new User { Username = "pncfsadmin", Email = "singhanubhav1562@gmail.com", Password = passwordHash, Role = "DEPT_ADMIN", DepartmentId = pncFS.Id, Status = "ACTIVE" },
-            new User { Username = "pncopsadmin", Email = "singhanubhav1562@gmail.com", Password = passwordHash, Role = "DEPT_ADMIN", DepartmentId = pncOPS.Id, Status = "ACTIVE" },
-            new User { Username = "pncchemadmin", Email = "singhanubhav1562@gmail.com", Password = passwordHash, Role = "DEPT_ADMIN", DepartmentId = pncCHEM.Id, Status = "ACTIVE" },
+            new User { Username = "prfsadmin", Email = "anubhav.singh0020vit@gmail.com", Password = passwordHash, Role = "DEPT_ADMIN", DepartmentId = prFS.Id, Status = "ACTIVE" },
+            new User { Username = "propsadmin", Email = "anubhav.singh0020vit@gmail.com", Password = passwordHash, Role = "DEPT_ADMIN", DepartmentId = prOPS.Id, Status = "ACTIVE" },
+            new User { Username = "prchemadmin", Email = "anubhav.singh0020vit@gmail.com", Password = passwordHash, Role = "DEPT_ADMIN", DepartmentId = prCHEM.Id, Status = "ACTIVE" },
+            new User { Username = "pncfsadmin", Email = "anubhav.singh0020vit@gmail.com", Password = passwordHash, Role = "DEPT_ADMIN", DepartmentId = pncFS.Id, Status = "ACTIVE" },
+            new User { Username = "pncopsadmin", Email = "anubhav.singh0020vit@gmail.com", Password = passwordHash, Role = "DEPT_ADMIN", DepartmentId = pncOPS.Id, Status = "ACTIVE" },
+            new User { Username = "pncchemadmin", Email = "anubhav.singh0020vit@gmail.com", Password = passwordHash, Role = "DEPT_ADMIN", DepartmentId = pncCHEM.Id, Status = "ACTIVE" },
             new User { Username = "complianceviewer", Email = "singhanubhav1562@gmail.com", Password = passwordHash, Role = "VIEWER", DepartmentId = null, Status = "ACTIVE" }
         };
         db.Users.AddRange(usersData);

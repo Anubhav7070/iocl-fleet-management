@@ -115,21 +115,18 @@ public class AdminController : ControllerBase
 
                 // Send compliance email alert to matching admins
                 var usersToNotify = await _db.Users
+                    .Include(u => u.Department)
                     .Where(u => u.Status == "ACTIVE" && (u.Role == "SUPER_ADMIN" || (u.Role == "DEPT_ADMIN" && u.DepartmentId == vehicle.DepartmentId)))
                     .ToListAsync();
 
-                var uniqueRecipients = usersToNotify
-                    .GroupBy(u => u.Email.ToLower().Trim())
-                    .Select(g => g.First())
-                    .ToList();
-
-                foreach (var user in uniqueRecipients)
+                foreach (var user in usersToNotify)
                 {
                     try
                     {
+                        var greetingName = user.Role == "SUPER_ADMIN" ? "Super Admin" : (user.Department != null ? $"{user.Department.Name} Admin" : user.Username);
                         await emailService.SendComplianceAlert(
                             user.Email,
-                            user.Username,
+                            greetingName,
                             vehicle.VehicleNumber,
                             vehicle.VehicleType,
                             vehicle.Department?.Name ?? "N/A",
@@ -255,22 +252,19 @@ public class AdminController : ControllerBase
             .ToListAsync();
 
         var usersToNotify = await _db.Users
+            .Include(u => u.Department)
             .Where(u => u.Status == "ACTIVE" && (u.Role == "SUPER_ADMIN" || u.Role == "DEPT_ADMIN"))
             .ToListAsync();
 
-        var uniqueRecipients = usersToNotify
-            .GroupBy(u => u.Email.ToLower().Trim())
-            .Select(g => g.First())
-            .ToList();
-
         int sentCount = 0;
-        foreach (var user in uniqueRecipients)
+        foreach (var user in usersToNotify)
         {
             try
             {
+                var greetingName = user.Role == "SUPER_ADMIN" ? "Super Admin" : (user.Department != null ? $"{user.Department.Name} Admin" : user.Username);
                 await emailService.SendDailySummary(
                     user.Email,
-                    user.Username,
+                    greetingName,
                     totalVehicles,
                     expiredCount,
                     criticalCount,

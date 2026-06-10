@@ -139,6 +139,30 @@ using (var scope = app.Services.CreateScope())
         var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
         await DbSeeder.SeedAsync(db, config, forceRecreate: false);
     }
+    else
+    {
+        // Update existing user emails to match requirements dynamically on startup
+        var users = await db.Users.ToListAsync();
+        bool changed = false;
+        foreach (var u in users)
+        {
+            if (u.Role == "SUPER_ADMIN" && u.Email != "singhanubhav1562@gmail.com")
+            {
+                u.Email = "singhanubhav1562@gmail.com";
+                changed = true;
+            }
+            else if (u.Role == "DEPT_ADMIN" && u.Email != "anubhav.singh0020vit@gmail.com")
+            {
+                u.Email = "anubhav.singh0020vit@gmail.com";
+                changed = true;
+            }
+        }
+        if (changed)
+        {
+            await db.SaveChangesAsync();
+            Console.WriteLine("[Server] Existing user emails synchronized with deployment requirements.");
+        }
+    }
 }
 
 // ─── Middleware Pipeline ────────────────────────────────────────────────
