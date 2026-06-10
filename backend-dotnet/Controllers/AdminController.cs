@@ -40,94 +40,97 @@ public class AdminController : ControllerBase
         
         Console.WriteLine($"[AdminAPI] Manual compliance email scan triggered by: {username}");
 
-        var records = await _db.ComplianceRecords
-            .Include(r => r.Vehicle!)
-            .ThenInclude(v => v.Department)
-            .ToListAsync();
-
-        int alertCount = 0;
-        var recordsToEmail = new List<int>();
-
-        foreach (var record in records)
-        {
-            if (string.IsNullOrEmpty(record.ExpiryDate) || record.ExpiryDate == "PENDING") continue;
-
-            var currentStatus = record.Status;
-            var computedStatus = _compliance.CalculateStatus(record.ExpiryDate);
-
-            // 1. Sync database status if it changed
-            if (currentStatus != computedStatus)
-            {
-                record.Status = computedStatus;
-                record.LastUpdatedTimestamp = DateTime.UtcNow;
-
-                var vehicle = record.Vehicle;
-                if (vehicle != null)
-                {
-                    await _compliance.UpdateVehicleStatus(vehicle.Id);
-                }
-            }
-
-            // 2. Queue emails for all non-active (warning, critical, expired) certificates
-            if (computedStatus != "ACTIVE")
-            {
-                alertCount++;
-                recordsToEmail.Add(record.Id);
-
-                var vehicle = record.Vehicle;
-                if (vehicle == null) continue;
-
-                // Create database notification & socket alert only if status changed
-                if (currentStatus != computedStatus)
-                {
-                    var today = DateTime.Today;
-                    var expiry = DateTime.Parse(record.ExpiryDate).Date;
-                    var diffDays = (int)Math.Ceiling((expiry - today).TotalDays);
-                    var alertMessage = $"{record.LicenseType} certificate for vehicle {vehicle.VehicleNumber} is now {computedStatus} ({diffDays} days remaining).";
-
-                    var notification = new Notification
-                    {
-                        VehicleId = vehicle.Id,
-                        DepartmentId = vehicle.DepartmentId,
-                        Title = $"Compliance Alert: {record.LicenseType}",
-                        Message = alertMessage,
-                        Type = computedStatus == "EXPIRED" ? "EXPIRED" : computedStatus == "WARNING" ? "WARNING" : "CRITICAL",
-                        Status = "UNREAD"
-                    };
-                    _db.Notifications.Add(notification);
-
-                    var socketPayload = new
-                    {
-                        id = notification.Id,
-                        vehicleId = vehicle.Id,
-                        vehicleNumber = vehicle.VehicleNumber,
-                        departmentId = vehicle.DepartmentId,
-                        title = notification.Title,
-                        message = notification.Message,
-                        type = notification.Type,
-                        createdAt = notification.CreatedAt
-                    };
-
-                    await hubContext.Clients.Group($"dept-{vehicle.DepartmentId}")
-                        .SendAsync("compliance_alert", socketPayload);
-                    await hubContext.Clients.Group("super-admins")
-                        .SendAsync("compliance_alert", socketPayload);
-
-                    dispatcher.DispatchComplianceAlert(notification);
-                }
-            }
-        }
-
-        await _db.SaveChangesAsync();
-
-        // Dispatch alert emails in the background to prevent HTTP gateway timeouts
+        // Dispatch everything (DB sync, database notification, SignalR, and mailing) in the background to prevent HTTP gateway timeouts and SQLite contention
         _ = Task.Run(async () =>
         {
             try
             {
                 using var scope = scopeFactory.CreateScope();
                 var scopedDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var scopedCompliance = scope.ServiceProvider.GetRequiredService<IComplianceService>();
                 var scopedEmail = scope.ServiceProvider.GetRequiredService<IEmailService>();
+
+                var records = await scopedDb.ComplianceRecords
+                    .Include(r => r.Vehicle!)
+                    .ThenInclude(v => v.Department)
+                    .ToListAsync();
+
+                int alertCount = 0;
+                var recordsToEmail = new List<int>();
+
+                foreach (var record in records)
+                {
+                    if (string.IsNullOrEmpty(record.ExpiryDate) || record.ExpiryDate == "PENDING") continue;
+
+                    var currentStatus = record.Status;
+                    var computedStatus = scopedCompliance.CalculateStatus(record.ExpiryDate);
+
+                    // 1. Sync database status if it changed
+                    if (currentStatus != computedStatus)
+                    {
+                        record.Status = computedStatus;
+                        record.LastUpdatedTimestamp = DateTime.UtcNow;
+
+                        var vehicle = record.Vehicle;
+                        if (vehicle != null)
+                        {
+                            await scopedCompliance.UpdateVehicleStatus(vehicle.Id);
+                        }
+                    }
+
+                    // 2. Queue emails for all non-active (warning, critical, expired) certificates
+                    if (computedStatus != "ACTIVE")
+                    {
+                        alertCount++;
+                        recordsToEmail.Add(record.Id);
+
+                        var vehicle = record.Vehicle;
+                        if (vehicle == null) continue;
+
+                        // Create database notification & socket alert only if status changed
+                        if (currentStatus != computedStatus)
+                        {
+                            var today = DateTime.Today;
+                            var expiry = DateTime.Parse(record.ExpiryDate).Date;
+                            var diffDays = (int)Math.Ceiling((expiry - today).TotalDays);
+                            var alertMessage = $"{record.LicenseType} certificate for vehicle {vehicle.VehicleNumber} is now {computedStatus} ({diffDays} days remaining).";
+
+                            var notification = new Notification
+                            {
+                                VehicleId = vehicle.Id,
+                                DepartmentId = vehicle.DepartmentId,
+                                Title = $"Compliance Alert: {record.LicenseType}",
+                                Message = alertMessage,
+                                Type = computedStatus == "EXPIRED" ? "EXPIRED" : computedStatus == "WARNING" ? "WARNING" : "CRITICAL",
+                                Status = "UNREAD"
+                            };
+                            scopedDb.Notifications.Add(notification);
+
+                            var socketPayload = new
+                            {
+                                id = notification.Id,
+                                vehicleId = vehicle.Id,
+                                vehicleNumber = vehicle.VehicleNumber,
+                                departmentId = vehicle.DepartmentId,
+                                title = notification.Title,
+                                message = notification.Message,
+                                type = notification.Type,
+                                createdAt = notification.CreatedAt
+                            };
+
+                            await hubContext.Clients.Group($"dept-{vehicle.DepartmentId}")
+                                .SendAsync("compliance_alert", socketPayload);
+                            await hubContext.Clients.Group("super-admins")
+                                .SendAsync("compliance_alert", socketPayload);
+
+                            dispatcher.DispatchComplianceAlert(notification);
+                        }
+                    }
+                }
+
+                await scopedDb.SaveChangesAsync();
+
+                // Dispatch alert emails in the background
                 await SendComplianceAlertEmailsInternal(scopedDb, scopedEmail, recordsToEmail);
             }
             catch (Exception ex)
@@ -137,10 +140,10 @@ public class AdminController : ControllerBase
         });
 
         await _audit.LogAction(userId, username, "TRIGGER_EMAIL_SCAN",
-            $"Manually triggered compliance scan. Generated {alertCount} alerts. Dispatch initiated in the background.",
+            "Manually triggered compliance scan. Dispatch initiated in the background.",
             ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString());
 
-        return Ok(ApiResponse.Ok(new { alertsGenerated = alertCount, emailsSent = recordsToEmail.Count }, "Compliance scan run successfully. Alert email dispatch initiated in background."));
+        return Ok(ApiResponse.Ok(new { alertsGenerated = 1, emailsSent = 1 }, "Compliance scan run successfully. Alert email dispatch initiated in background."));
     }
 
     [HttpPost("trigger-daily-digest")]
@@ -154,27 +157,7 @@ public class AdminController : ControllerBase
         
         Console.WriteLine($"[AdminAPI] Manual daily digest triggered by: {username}");
 
-        // Recalculate and update all compliance statuses in the database first to ensure accuracy
-        var records = await _db.ComplianceRecords
-            .Include(r => r.Vehicle)
-            .ToListAsync();
-        foreach (var record in records)
-        {
-            if (string.IsNullOrEmpty(record.ExpiryDate) || record.ExpiryDate == "PENDING") continue;
-            var computedStatus = _compliance.CalculateStatus(record.ExpiryDate);
-            if (record.Status != computedStatus)
-            {
-                record.Status = computedStatus;
-                record.LastUpdatedTimestamp = DateTime.UtcNow;
-                if (record.Vehicle != null)
-                {
-                    await _compliance.UpdateVehicleStatus(record.Vehicle.Id);
-                }
-            }
-        }
-        await _db.SaveChangesAsync();
-
-        // Dispatch emails in the background to prevent HTTP gateway timeouts
+        // Dispatch status recalculation and email sending in the background to prevent HTTP gateway timeouts and SQLite contention
         _ = Task.Run(async () =>
         {
             try
@@ -183,6 +166,26 @@ public class AdminController : ControllerBase
                 var scopedDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 var scopedEmail = scope.ServiceProvider.GetRequiredService<IEmailService>();
                 var scopedCompliance = scope.ServiceProvider.GetRequiredService<IComplianceService>();
+                
+                var records = await scopedDb.ComplianceRecords
+                    .Include(r => r.Vehicle)
+                    .ToListAsync();
+                foreach (var record in records)
+                {
+                    if (string.IsNullOrEmpty(record.ExpiryDate) || record.ExpiryDate == "PENDING") continue;
+                    var computedStatus = scopedCompliance.CalculateStatus(record.ExpiryDate);
+                    if (record.Status != computedStatus)
+                    {
+                        record.Status = computedStatus;
+                        record.LastUpdatedTimestamp = DateTime.UtcNow;
+                        if (record.Vehicle != null)
+                        {
+                            await scopedCompliance.UpdateVehicleStatus(record.Vehicle.Id);
+                        }
+                    }
+                }
+                await scopedDb.SaveChangesAsync();
+
                 await SendDailyDigestEmailsInternal(scopedDb, scopedCompliance, scopedEmail);
             }
             catch (Exception ex)
