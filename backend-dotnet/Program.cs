@@ -128,11 +128,17 @@ if (args.Contains("--seed"))
     return;
 }
 
-// ─── Ensure database exists ─────────────────────────────────────────────
+// ─── Ensure database exists and is seeded if fresh ──────────────────────
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await db.Database.EnsureCreatedAsync();
+    if (!await db.Users.AnyAsync())
+    {
+        Console.WriteLine("[Server] Fresh database detected. Automatically seeding demo data...");
+        var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+        await DbSeeder.SeedAsync(db, config, forceRecreate: false);
+    }
 }
 
 // ─── Middleware Pipeline ────────────────────────────────────────────────

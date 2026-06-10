@@ -1,5 +1,6 @@
 using QRCoder;
 using IoclFleetApi.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace IoclFleetApi.Data;
 
@@ -8,15 +9,27 @@ namespace IoclFleetApi.Data;
 /// </summary>
 public static class DbSeeder
 {
-    public static async Task SeedAsync(AppDbContext db, IConfiguration config)
+    public static async Task SeedAsync(AppDbContext db, IConfiguration config, bool forceRecreate = true)
     {
         Console.WriteLine("=================================================");
         Console.WriteLine("IOCL Panipat Refinery - Fleet Compliance Seeding");
         Console.WriteLine("=================================================");
 
-        await db.Database.EnsureDeletedAsync();
-        await db.Database.EnsureCreatedAsync();
-        Console.WriteLine("[✓] Database synchronized (tables dropped and recreated).");
+        if (forceRecreate)
+        {
+            await db.Database.EnsureDeletedAsync();
+            await db.Database.EnsureCreatedAsync();
+            Console.WriteLine("[✓] Database synchronized (tables dropped and recreated).");
+        }
+        else
+        {
+            await db.Database.EnsureCreatedAsync();
+            if (await db.Users.AnyAsync())
+            {
+                Console.WriteLine("[Server] Database already seeded. Skipping...");
+                return;
+            }
+        }
 
         // 1. DEPARTMENTS
         var deptsData = new[]
