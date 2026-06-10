@@ -53,23 +53,33 @@ public class AdminController : ControllerBase
             var currentStatus = record.Status;
             var computedStatus = _compliance.CalculateStatus(record.ExpiryDate);
 
+            // 1. Sync database status if it changed
             if (currentStatus != computedStatus)
             {
                 record.Status = computedStatus;
                 record.LastUpdatedTimestamp = DateTime.UtcNow;
 
                 var vehicle = record.Vehicle;
+                if (vehicle != null)
+                {
+                    await _compliance.UpdateVehicleStatus(vehicle.Id);
+                }
+            }
+
+            // 2. Send emails for all non-active (warning, critical, expired) certificates
+            if (computedStatus != "ACTIVE")
+            {
+                alertCount++;
+                var today = DateTime.Today;
+                var expiry = DateTime.Parse(record.ExpiryDate).Date;
+                var diffDays = (int)Math.Ceiling((expiry - today).TotalDays);
+
+                var vehicle = record.Vehicle;
                 if (vehicle == null) continue;
 
-                await _compliance.UpdateVehicleStatus(vehicle.Id);
-
-                if (computedStatus != "ACTIVE")
+                // Create database notification & socket alert only if status changed
+                if (currentStatus != computedStatus)
                 {
-                    alertCount++;
-                    var today = DateTime.Today;
-                    var expiry = DateTime.Parse(record.ExpiryDate).Date;
-                    var diffDays = (int)Math.Ceiling((expiry - today).TotalDays);
-
                     var alertMessage = $"{record.LicenseType} certificate for vehicle {vehicle.VehicleNumber} is now {computedStatus} ({diffDays} days remaining).";
 
                     var notification = new Notification
@@ -101,37 +111,38 @@ public class AdminController : ControllerBase
                         .SendAsync("compliance_alert", socketPayload);
 
                     dispatcher.DispatchComplianceAlert(notification);
+                }
 
-                    var usersToNotify = await _db.Users
-                        .Where(u => u.Status == "ACTIVE" && (u.Role == "SUPER_ADMIN" || (u.Role == "DEPT_ADMIN" && u.DepartmentId == vehicle.DepartmentId)))
-                        .ToListAsync();
+                // Send compliance email alert to matching admins
+                var usersToNotify = await _db.Users
+                    .Where(u => u.Status == "ACTIVE" && (u.Role == "SUPER_ADMIN" || (u.Role == "DEPT_ADMIN" && u.DepartmentId == vehicle.DepartmentId)))
+                    .ToListAsync();
 
-                    var uniqueRecipients = usersToNotify
-                        .GroupBy(u => u.Email.ToLower().Trim())
-                        .Select(g => g.First())
-                        .ToList();
+                var uniqueRecipients = usersToNotify
+                    .GroupBy(u => u.Email.ToLower().Trim())
+                    .Select(g => g.First())
+                    .ToList();
 
-                    foreach (var user in uniqueRecipients)
+                foreach (var user in uniqueRecipients)
+                {
+                    try
                     {
-                        try
-                        {
-                            await emailService.SendComplianceAlert(
-                                user.Email,
-                                user.Username,
-                                vehicle.VehicleNumber,
-                                vehicle.VehicleType,
-                                vehicle.Department?.Name ?? "N/A",
-                                record.LicenseType,
-                                record.ExpiryDate,
-                                diffDays,
-                                computedStatus
-                            );
-                            emailsSent++;
-                        }
-                        catch (Exception emailEx)
-                        {
-                            Console.WriteLine($"[AdminAPI] Failed to send email alert to {user.Email}: {emailEx.Message}");
-                        }
+                        await emailService.SendComplianceAlert(
+                            user.Email,
+                            user.Username,
+                            vehicle.VehicleNumber,
+                            vehicle.VehicleType,
+                            vehicle.Department?.Name ?? "N/A",
+                            record.LicenseType,
+                            record.ExpiryDate,
+                            diffDays,
+                            computedStatus
+                        );
+                        emailsSent++;
+                    }
+                    catch (Exception emailEx)
+                    {
+                        Console.WriteLine($"[AdminAPI] Failed to send email alert to {user.Email}: {emailEx.Message}");
                     }
                 }
             }
@@ -154,6 +165,26 @@ public class AdminController : ControllerBase
         var username = User.FindFirst("username")?.Value ?? "unknown";
         
         Console.WriteLine($"[AdminAPI] Manual daily digest triggered by: {username}");
+
+        // Recalculate and update all compliance statuses in the database first to ensure accuracy
+        var records = await _db.ComplianceRecords
+            .Include(r => r.Vehicle)
+            .ToListAsync();
+        foreach (var record in records)
+        {
+            if (string.IsNullOrEmpty(record.ExpiryDate) || record.ExpiryDate == "PENDING") continue;
+            var computedStatus = _compliance.CalculateStatus(record.ExpiryDate);
+            if (record.Status != computedStatus)
+            {
+                record.Status = computedStatus;
+                record.LastUpdatedTimestamp = DateTime.UtcNow;
+                if (record.Vehicle != null)
+                {
+                    await _compliance.UpdateVehicleStatus(record.Vehicle.Id);
+                }
+            }
+        }
+        await _db.SaveChangesAsync();
 
         int emailsSent = await SendDailyDigestEmailsInternal(emailService);
 

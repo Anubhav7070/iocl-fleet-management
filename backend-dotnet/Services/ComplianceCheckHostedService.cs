@@ -48,23 +48,9 @@ public class ComplianceCheckHostedService : BackgroundService
             var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<ComplianceHub>>();
             var dispatcher = scope.ServiceProvider.GetRequiredService<IComplianceAlertDispatcher>();
 
-            // ── Send Daily digest summaries once per calendar day ────
             var today = DateTime.Today;
-            if (_lastDigestSentDate == null || today > _lastDigestSentDate.Value.Date)
-            {
-                _logger.LogInformation("[ComplianceCheck] Starting scheduled daily compliance digest email send...");
-                try
-                {
-                    var emailService = scope.ServiceProvider.GetRequiredService<IEmailService>();
-                    await SendDailyDigestEmailsHosted(db, complianceService, emailService, ct);
-                    _lastDigestSentDate = today;
-                }
-                catch (Exception digestEx)
-                {
-                    _logger.LogError(digestEx, "[ComplianceCheck] Failed to send scheduled daily digest emails");
-                }
-            }
 
+            // ── 1. Update compliance statuses in the database first ────
             var records = await db.ComplianceRecords
                 .Include(r => r.Vehicle!)
                 .ThenInclude(v => v.Department)
@@ -173,6 +159,22 @@ public class ComplianceCheckHostedService : BackgroundService
 
             await db.SaveChangesAsync(ct);
             _logger.LogInformation("[ComplianceCheck] Scan complete. Generated {AlertCount} new alerts.", alertCount);
+
+            // ── 2. Send Daily digest summaries once per calendar day (using updated database statuses) ────
+            if (_lastDigestSentDate == null || today > _lastDigestSentDate.Value.Date)
+            {
+                _logger.LogInformation("[ComplianceCheck] Starting scheduled daily compliance digest email send...");
+                try
+                {
+                    var emailService = scope.ServiceProvider.GetRequiredService<IEmailService>();
+                    await SendDailyDigestEmailsHosted(db, complianceService, emailService, ct);
+                    _lastDigestSentDate = today;
+                }
+                catch (Exception digestEx)
+                {
+                    _logger.LogError(digestEx, "[ComplianceCheck] Failed to send scheduled daily digest emails");
+                }
+            }
         }
         catch (Exception ex)
         {
