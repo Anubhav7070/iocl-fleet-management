@@ -362,13 +362,13 @@ public class ComplianceController : ControllerBase
     {
         if (string.IsNullOrEmpty(text)) return null;
 
-        // Date patterns to try (ordered by specificity, year can be 2-4 digits)
+        // Date patterns to try (ordered by specificity, year can be 2-4 digits, removing strict \b bounds to handle layout-glued text)
         var datePatterns = new[]
         {
-            @"\b(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})\b",      // dd/mm/yyyy  or dd/mm/yy
-            @"\b(\d{1,2})[\s\-\/\.]*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s\-\/\.,]+(\d{2,4})\b", // dd Mon YYYY/YY (allows hyphens, spaces, etc.)
-            @"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s\-\/\.,]+(\d{1,2})[\s\-\/\.,]+(\d{2,4})\b", // Mon dd, YYYY/YY
-            @"\b(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})\b"        // yyyy-mm-dd
+            @"(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})",      // dd/mm/yyyy  or dd/mm/yy
+            @"(\d{1,2})[\s\-\/\.]*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s\-\/\.,]+(\d{2,4})", // dd Mon YYYY/YY (allows hyphens, spaces, etc.)
+            @"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s\-\/\.,]+(\d{1,2})[\s\-\/\.,]+(\d{2,4})", // Mon dd, YYYY/YY
+            @"(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})"        // yyyy-mm-dd
         };
 
         // Keywords that signal an expiry date is nearby
@@ -432,7 +432,7 @@ public class ComplianceController : ControllerBase
         try
         {
             // Pattern: dd/mm/yyyy
-            if (pattern.StartsWith(@"\b(\d{1,2})[\/"))
+            if (pattern.StartsWith(@"(\d{1,2})[\/"))
             {
                 int p1 = int.Parse(m.Groups[1].Value);
                 int p2 = int.Parse(m.Groups[2].Value);
@@ -454,7 +454,7 @@ public class ComplianceController : ControllerBase
                 return false;
             }
             // Pattern: yyyy-mm-dd
-            if (pattern.StartsWith(@"\b(\d{4})"))
+            if (pattern.StartsWith(@"(\d{4})"))
             {
                 int yr = int.Parse(m.Groups[1].Value);
                 int mo = int.Parse(m.Groups[2].Value);
