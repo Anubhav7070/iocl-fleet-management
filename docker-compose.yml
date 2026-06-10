@@ -15,9 +15,9 @@ services:
       # --- SMTP EMAIL CONFIGURATION (Update with your credentials) ---
       - Email__Host=smtp.gmail.com
       - Email__Port=587
-      - Email__User=your-email@gmail.com
-      - Email__Pass=your-gmail-app-password
-      - Email__FromAddress=your-email@gmail.com
+      - Email__User=singhanubhav1562@gmail.com
+      - Email__Pass=hjaxqkvddzjhgwai
+      - Email__FromAddress=singhanubhav1562@gmail.com
       - Email__FromName=IOCL Fleet Compliance System
     volumes:
       - ./backend-dotnet/database:/app/database
