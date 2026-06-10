@@ -248,15 +248,47 @@ public class ComplianceCheckHostedService : BackgroundService
             try
             {
                 var greetingName = user.Role == "SUPER_ADMIN" ? "Super Admin" : (user.Department != null ? $"{user.Department.Name} Admin" : user.Username);
+                
+                int userTotalVehicles = totalVehicles;
+                int userExpired = expiredCount;
+                int userCritical = criticalCount;
+                int userWarning = warningCount;
+                var userBreakdown = breakdown;
+                var userExpiring = expiringRecords;
+
+                if (user.Role == "DEPT_ADMIN" && user.DepartmentId.HasValue)
+                {
+                    var deptId = user.DepartmentId.Value;
+                    var deptVehicles = vehicles.Where(v => v.DepartmentId == deptId).ToList();
+                    userTotalVehicles = deptVehicles.Count;
+
+                    userExpired = 0;
+                    userCritical = 0;
+                    userWarning = 0;
+                    foreach (var v in deptVehicles)
+                    {
+                        foreach (var r in v.ComplianceRecords)
+                        {
+                            var status = complianceService.CalculateStatus(r.ExpiryDate);
+                            if (status == "EXPIRED") userExpired++;
+                            else if (status is "HIGH_CRITICAL" or "MEDIUM_CRITICAL") userCritical++;
+                            else if (status == "WARNING") userWarning++;
+                        }
+                    }
+
+                    userBreakdown = breakdown.Where(b => b.Name == user.Department?.Name).ToList();
+                    userExpiring = expiringRecords.Where(r => r.Vehicle?.DepartmentId == deptId).ToList();
+                }
+
                 await emailService.SendDailySummary(
                     user.Email,
                     greetingName,
-                    totalVehicles,
-                    expiredCount,
-                    criticalCount,
-                    warningCount,
-                    breakdown,
-                    expiringRecords
+                    userTotalVehicles,
+                    userExpired,
+                    userCritical,
+                    userWarning,
+                    userBreakdown,
+                    userExpiring
                 );
             }
             catch (Exception ex)
