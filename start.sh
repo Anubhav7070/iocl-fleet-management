@@ -12,12 +12,12 @@ export Upload__Directory=${Upload__Directory:-/app/backend/uploads}
 # Start backend in background on port 5000
 echo "[1/3] Starting Backend API..."
 cd /app/backend
-dotnet IoclFleetApi.dll &
+PORT=5000 dotnet IoclFleetApi.dll &
 
 # Start frontend in background on port 5173
 echo "[2/3] Starting Blazor Frontend..."
 cd /app/frontend
-dotnet frontend-dotnet.dll &
+ASPNETCORE_HTTP_PORTS=5173 dotnet frontend-dotnet.dll &
 
 # Start Nginx in foreground to keep container alive
 echo "[3/3] Starting Nginx Proxy..."
